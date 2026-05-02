@@ -9,10 +9,18 @@ const Account = () => {
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-    if (!token) { navigate("/login"); return; }
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
     getUserInfo(token).then((data) => {
-      if (data.user) setUser(data.user);
-      else { localStorage.removeItem("token"); navigate("/login"); }
+      if (data.user) {
+        setUser(data.user);
+      } else {
+        localStorage.removeItem("token");
+        navigate("/login");
+      }
     });
   }, [token, navigate]);
 
@@ -26,12 +34,13 @@ const Account = () => {
 
   const initial = user.full_name?.charAt(0)?.toUpperCase() || "?";
   const isAdmin = user.role === "admin";
+  const isCounselor = user.role === "counselor";
+  const roleLabel = isAdmin ? "Администратор" : isCounselor ? "Възпитател" : "Студент";
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="max-w-lg mx-auto px-4 py-8">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          {/* Red header banner */}
           <div className="bg-[#791c1c] h-32 relative">
             <div className="absolute inset-0 opacity-10 overflow-hidden">
               <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white" />
@@ -40,17 +49,16 @@ const Account = () => {
           </div>
 
           <div className="px-6 pb-6">
-            {/* Avatar + role badge */}
             <div className="-mt-10 mb-4 flex items-end justify-between">
               <div className="w-20 h-20 rounded-2xl bg-white border-4 border-white shadow-lg flex items-center justify-center text-[#791c1c] font-black text-3xl select-none">
                 {initial}
               </div>
-              <span className={`mb-1 px-3 py-1 rounded-full text-xs font-semibold ${
-                isAdmin
-                  ? "bg-red-100 text-[#791c1c]"
-                  : "bg-blue-100 text-blue-700"
-              }`}>
-                {isAdmin ? "Администратор" : "Студент"}
+              <span
+                className={`mb-1 px-3 py-1 rounded-full text-xs font-semibold ${
+                  isAdmin ? "bg-red-100 text-[#791c1c]" : isCounselor ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"
+                }`}
+              >
+                {roleLabel}
               </span>
             </div>
 
@@ -58,15 +66,11 @@ const Account = () => {
             <p className="text-gray-400 text-sm mb-6">{user.email}</p>
 
             <div className="space-y-1 border-t border-slate-100 pt-5">
-              <InfoRow
-                icon={<FaEnvelope size={13} />}
-                label="Имейл адрес"
-                value={user.email}
-              />
+              <InfoRow icon={<FaEnvelope size={13} />} label="Имейл адрес" value={user.email} />
               <InfoRow
                 icon={isAdmin ? <FaShieldAlt size={13} /> : <FaUserGraduate size={13} />}
                 label="Роля в системата"
-                value={isAdmin ? "Администратор" : "Студент"}
+                value={roleLabel}
               />
               <InfoRow
                 icon={<FaCalendarAlt size={13} />}
@@ -77,6 +81,13 @@ const Account = () => {
                   year: "numeric",
                 })}
               />
+              {!isAdmin && (
+                <InfoRow
+                  icon={<FaUserGraduate size={13} />}
+                  label="Общежитие"
+                  value={user.dormitory ? `Общежитие ${user.dormitory}` : "Няма избрано"}
+                />
+              )}
             </div>
           </div>
         </div>

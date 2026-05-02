@@ -8,7 +8,7 @@ $user = new User($db);
 
 $user_id = authenticate();
 
-$userData = $user->getUserById($user_id);
+$userData = $user->ensureSystemRoleById((int) $user_id);
 unset($userData['password_hash']);
 
 echo json_encode(["user" => $userData]);

@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { login, API_BASE } from "../api/auth";
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -22,7 +24,7 @@ const Login = () => {
         });
         const result = await res.json();
         if (res.ok && result.user) {
-          navigate(result.user.role === "admin" ? "/admin" : "/home");
+          navigate(result.user.role === "student" ? "/home" : "/admin");
         } else {
           setError("Неуспешно извличане на потребителска информация.");
         }
@@ -38,7 +40,6 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left branding panel */}
       <div className="hidden lg:flex lg:w-1/2 bg-[#791c1c] flex-col justify-center items-center p-12 relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.07]">
           <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] rounded-full bg-white" />
@@ -51,22 +52,9 @@ const Login = () => {
           </div>
           <h1 className="text-white text-4xl font-black tracking-widest mb-2">УКТЦ</h1>
           <p className="text-red-200 text-sm uppercase tracking-widest mb-10">Система за присъствие</p>
-          <div className="space-y-3 max-w-xs mx-auto text-left">
-            {[
-              "Следи присъствието на студентите в реално време",
-              "Преглед на седмичен отчет по студент",
-              "Управление на статуси с локация",
-            ].map((text) => (
-              <div key={text} className="flex items-start gap-3 bg-white/10 rounded-xl px-4 py-3">
-                <span className="text-green-300 mt-0.5 flex-shrink-0">✓</span>
-                <span className="text-red-100 text-sm">{text}</span>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 
-      {/* Right form panel */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-slate-50">
         <div className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-3 mb-10">
@@ -96,14 +84,24 @@ const Login = () => {
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-600 mb-1.5">Парола</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                placeholder="••••••••"
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#791c1c]/30 focus:border-[#791c1c] transition"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  placeholder="••••••••"
+                  className="w-full px-4 py-3 pr-11 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#791c1c]/30 focus:border-[#791c1c] transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
+                </button>
+              </div>
             </div>
 
             {error && (

@@ -23,6 +23,9 @@ services:
       DB_USER: root
       DB_PASSWORD: rootpassword
       JWT_SECRET: change_this_to_a_secure_random_secret_in_production
+      MAIL_FROM: school.inventory.bot@gmail.com
+      MAIL_FROM_NAME: school-inventory-management-system
+      MAIL_FORCE_LOG_ONLY: "0"
     depends_on:
       db:
         condition: service_healthy
