@@ -9,10 +9,11 @@ FROM php:8.2-apache
 RUN docker-php-ext-install pdo pdo_mysql
 
 RUN set -eux; \
-    if a2query -m mpm_event >/dev/null 2>&1; then \
-        a2dismod mpm_event; \
-    fi; \
-    a2enmod mpm_prefork rewrite
+    a2dismod -f mpm_event mpm_worker || true; \
+    rm -f /etc/apache2/mods-enabled/mpm_event.load /etc/apache2/mods-enabled/mpm_event.conf; \
+    rm -f /etc/apache2/mods-enabled/mpm_worker.load /etc/apache2/mods-enabled/mpm_worker.conf; \
+    a2enmod mpm_prefork rewrite; \
+    apache2ctl -M | grep mpm_prefork
 
 COPY apache.conf /etc/apache2/sites-available/000-default.conf.template
 COPY docker-entrypoint.sh /usr/local/bin/railway-apache-entrypoint
