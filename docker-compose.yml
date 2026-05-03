@@ -14,6 +14,12 @@ services:
       timeout: 5s
       retries: 10
 
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -23,12 +29,23 @@ services:
       DB_USER: root
       DB_PASSWORD: rootpassword
       JWT_SECRET: change_this_to_a_secure_random_secret_in_production
-      MAIL_FROM: school.inventory.bot@gmail.com
-      MAIL_FROM_NAME: school-inventory-management-system
-      MAIL_FORCE_LOG_ONLY: "0"
+      MAIL_FROM: ${MAIL_FROM:-school.inventory.bot@gmail.com}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-school-inventory-management-system}
+      MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-mailpit}
+      MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-1025}
+      MAIL_SMTP_ENCRYPTION: ${MAIL_SMTP_ENCRYPTION:-}
+      MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
+      MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
+      MAIL_SMTP_TIMEOUT: ${MAIL_SMTP_TIMEOUT:-10}
+      MAIL_EHLO_DOMAIN: ${MAIL_EHLO_DOMAIN:-localhost}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
+      PASSWORD_RESET_TOKEN_MINUTES: ${PASSWORD_RESET_TOKEN_MINUTES:-30}
+      MAIL_FORCE_LOG_ONLY: ${MAIL_FORCE_LOG_ONLY:-0}
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   frontend:
     build: ./frontend

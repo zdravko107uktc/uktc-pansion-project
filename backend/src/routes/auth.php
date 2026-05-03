@@ -4,6 +4,9 @@ require_once __DIR__ . '/../config/jwt.php';
 require_once __DIR__ . '/../middleware/jwtCheckToken.php';
 require_once __DIR__ . '/../services/SystemRoles.php';
 require_once __DIR__ . '/../services/EmailNotifier.php';
+require_once __DIR__ . '/../services/ApiException.php';
+require_once __DIR__ . '/../services/StudentStatusWorkflow.php';
+require_once __DIR__ . '/../services/PasswordResetService.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -36,6 +39,8 @@ $db->exec(
 
 $user = new User($db);
 $notifier = new EmailNotifier($db);
+$studentStatusWorkflow = new StudentStatusWorkflow($user, $notifier);
+$passwordResetService = new PasswordResetService($user, $notifier);
 
 $requestMethod = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
@@ -101,7 +106,7 @@ function requireStaffAccess(User $userModel, int $userId): array
 
 function sendAdminNotification(EmailNotifier $emailNotifier, string $subject, string $body, string $eventType): void
 {
-    $emailNotifier->send(SYSTEM_ADMIN_EMAIL, $subject, $body, $eventType);
+    $emailNotifier->send(systemAdminEmail(), $subject, $body, $eventType);
 }
 
 function validateFullName(string $name): void
@@ -184,6 +189,59 @@ function normalizeEventPayload(array $data): array
 function monthDateLabel(string $date): string
 {
     return date('d.m.Y', strtotime($date));
+}
+
+if ($requestMethod === 'POST' && $action === 'update_status') {
+    $userId = authenticate();
+
+    try {
+        jsonResponse($studentStatusWorkflow->submitStatusChange((int) $userId, readJsonBody()));
+    } catch (ApiException $exception) {
+        jsonResponse($exception->getPayload(), $exception->getStatusCode());
+    }
+}
+
+if ($requestMethod === 'POST' && ($action === 'approve_unenrollment' || $action === 'reject_unenrollment')) {
+    $userId = authenticate();
+    $payload = readJsonBody();
+    $statusId = (int) ($payload['statusId'] ?? 0);
+    $decision = $action === 'approve_unenrollment' ? 'approve' : 'reject';
+
+    try {
+        jsonResponse($studentStatusWorkflow->reviewUnenrollmentRequest((int) $userId, $statusId, $decision));
+    } catch (ApiException $exception) {
+        jsonResponse($exception->getPayload(), $exception->getStatusCode());
+    }
+}
+
+if ($requestMethod === 'POST' && $action === 'request_password_reset') {
+    $payload = readJsonBody();
+    $email = trim($payload['email'] ?? '');
+
+    if ($email === '') {
+        jsonResponse(['message' => 'Моля, въведете имейл адрес.'], 400);
+    }
+
+    validateEmailAddress($email);
+    jsonResponse($passwordResetService->requestReset($email));
+}
+
+if ($requestMethod === 'POST' && $action === 'reset_password') {
+    $payload = readJsonBody();
+    $token = trim($payload['token'] ?? '');
+    $password = $payload['password'] ?? '';
+
+    if ($password === '') {
+        jsonResponse(['message' => 'Моля, въведете нова парола.'], 400);
+    }
+
+    validatePasswordValue($password);
+
+    try {
+        jsonResponse($passwordResetService->resetPassword($token, $password));
+    } catch (ApiException $exception) {
+        jsonResponse($exception->getPayload(), $exception->getStatusCode());
+    }
 }
 
 if ($requestMethod === 'POST') {
@@ -473,7 +531,7 @@ if ($requestMethod === 'POST') {
         validateFullName($name);
         validateEmailAddress($email);
 
-        if (isSystemAdminEmail($existingUser['email']) && normalizeSystemEmail($email) !== SYSTEM_ADMIN_EMAIL) {
+        if (isSystemAdminEmail($existingUser['email']) && normalizeSystemEmail($email) !== systemAdminEmail()) {
             jsonResponse(['message' => 'Имейлът на системния админ не може да бъде променян.'], 400);
         }
         if ($user->emailExistsForOtherUser($email, $targetUserId)) {

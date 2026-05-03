@@ -7,6 +7,8 @@ import Navbar from "./components/Navbar";
 import Account from "./components/Account";
 import AdminHome from "./components/AdminHome";
 import Home from "./components/Home";
+import ForgotPassword from "./components/ForgotPassword";
+import ResetPassword from "./components/ResetPassword";
 
 
 function App() {
@@ -17,6 +19,8 @@ function App() {
                 <Route path="/" element={<AuthRedirect />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/account" element={<Account />} />
                 <Route path="/admin" element={<AdminHome />} />
                 <Route path="/home" element={<Home />} />

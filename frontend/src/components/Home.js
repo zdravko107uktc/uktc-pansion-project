@@ -1,16 +1,21 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FaMapMarkerAlt, FaCheckCircle, FaTimesCircle, FaClock, FaPenNib } from "react-icons/fa";
 import { API_BASE, getCalendarData } from "../api/auth";
 import SignaturePad from "./SignaturePad";
 import CalendarPanel from "./CalendarPanel";
+import {
+  deriveEffectiveStatus,
+  getLatestReviewOutcome,
+  hasPendingUnenrollmentRequest,
+} from "../utils/studentStatus";
 
 const currentMonthValue = () => {
   const now = new Date();
   return `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, "0")}`;
 };
 
-const locationOptions = [
+const locationSuggestions = [
   "София",
   "Варна",
   "Пловдив",
@@ -19,16 +24,13 @@ const locationOptions = [
   "Стара Загора",
   "При родител/настойник",
   "Практика / стаж",
-  "Друго",
 ];
 
 const Home = () => {
   const [fullName, setFullName] = useState("");
   const [status, setStatus] = useState("");
   const [location, setLocation] = useState("");
-  const [customLocation, setCustomLocation] = useState("");
   const [signature, setSignature] = useState(null);
-  const [lastStatus, setLastStatus] = useState(null);
   const [history, setHistory] = useState([]);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -36,34 +38,38 @@ const Home = () => {
   const [calendarData, setCalendarData] = useState({ attendance: [], events: [] });
   const navigate = useNavigate();
 
-  const fetchHistoryAndUser = useCallback(async (token) => {
-    const [userRes, historyRes] = await Promise.all([
-      fetch(`${API_BASE}/user`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      }),
-      fetch(`${API_BASE}/auth?action=get_my_history`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      }),
-    ]);
+  const currentStatus = useMemo(() => deriveEffectiveStatus(history), [history]);
+  const hasPendingRequest = useMemo(() => hasPendingUnenrollmentRequest(history), [history]);
+  const latestReview = useMemo(() => getLatestReviewOutcome(history), [history]);
 
-    const userData = await userRes.json();
-    const historyData = await historyRes.json();
+  const fetchHistoryAndUser = useCallback(
+    async (token) => {
+      const [userRes, historyRes] = await Promise.all([
+        fetch(`${API_BASE}/user`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        }),
+        fetch(`${API_BASE}/auth?action=get_my_history`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        }),
+      ]);
 
-    if (!userRes.ok || !userData.user) {
-      throw new Error("Missing user");
-    }
+      const userData = await userRes.json();
+      const historyData = await historyRes.json();
 
-    if (userData.user.role === "admin") {
-      navigate("/admin");
-      return;
-    }
+      if (!userRes.ok || !userData.user) {
+        throw new Error("Missing user");
+      }
 
-    setFullName(userData.user.full_name);
-    if (Array.isArray(historyData)) {
-      setHistory(historyData);
-      if (historyData[0]) setLastStatus(historyData[0].status);
-    }
-  }, [navigate]);
+      if (userData.user.role === "admin") {
+        navigate("/admin");
+        return;
+      }
+
+      setFullName(userData.user.full_name);
+      setHistory(Array.isArray(historyData) ? historyData : []);
+    },
+    [navigate]
+  );
 
   const fetchCalendar = useCallback(async (token, month) => {
     const data = await getCalendarData(token, month);
@@ -103,7 +109,8 @@ const Home = () => {
       setMessage({ text: "Моля, изберете статус.", type: "error" });
       return;
     }
-    const finalLocation = location === "Друго" ? customLocation.trim() : location.trim();
+
+    const finalLocation = location.trim();
     if (status === "unenrolled" && !finalLocation) {
       setMessage({ text: "Моля, въведете локация при отписване.", type: "error" });
       return;
@@ -130,19 +137,9 @@ const Home = () => {
       setMessage({ text: result.message, type: response.ok ? "success" : "error" });
 
       if (response.ok) {
-        const newEntry = {
-          status,
-          location: status === "unenrolled" ? finalLocation : null,
-          signature: status === "unenrolled" ? signature || null : null,
-          approval_status: status === "unenrolled" ? "pending" : "approved",
-          timestamp: new Date().toISOString(),
-        };
-
-        setHistory((prev) => [newEntry, ...prev.slice(0, 9)]);
-        setLastStatus(status);
+        await fetchHistoryAndUser(token);
         setStatus("");
         setLocation("");
-        setCustomLocation("");
         setSignature(null);
         await fetchCalendar(token, calendarMonth);
       }
@@ -153,8 +150,12 @@ const Home = () => {
     }
   };
 
-  const selectedLocation = location === "Друго" ? customLocation.trim() : location.trim();
-  const canSubmit = status && status !== lastStatus && !(status === "unenrolled" && !selectedLocation);
+  const selectedLocation = location.trim();
+  const canSubmit =
+    status &&
+    !hasPendingRequest &&
+    status !== currentStatus &&
+    !(status === "unenrolled" && !selectedLocation);
 
   const statusConfig = {
     enrolled: {
@@ -182,7 +183,7 @@ const Home = () => {
       iconBg: "bg-slate-100 text-slate-300",
     },
   };
-  const currentConfig = statusConfig[lastStatus] ?? statusConfig.null;
+  const currentConfig = statusConfig[currentStatus] ?? statusConfig.null;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -217,6 +218,18 @@ const Home = () => {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6">
               <h2 className="text-base font-semibold text-gray-900 mb-4">Промяна на статус</h2>
 
+              {hasPendingRequest && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Имате заявка за отписване, която още чака одобрение.
+                </div>
+              )}
+
+              {!hasPendingRequest && latestReview?.approval_status === "rejected" && (
+                <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  Последната заявка за отписване е отказана. Можете да подадете нова.
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
                 {[
                   {
@@ -234,21 +247,23 @@ const Home = () => {
                     disabledStyle: "border-slate-100 bg-slate-50 text-slate-300",
                   },
                 ].map(({ value, label, icon, activeStyle, disabledStyle }) => {
-                  const isCurrent = lastStatus === value;
+                  const isCurrent = currentStatus === value;
+                  const isPendingChoice = hasPendingRequest && value === "unenrolled";
                   const isSelected = status === value;
+
                   return (
                     <button
                       key={value}
                       type="button"
                       onClick={() => {
-                        if (!isCurrent) {
+                        if (!isCurrent && !isPendingChoice) {
                           setStatus(value);
                           setMessage({ text: "", type: "" });
                         }
                       }}
-                      disabled={isCurrent}
+                      disabled={isCurrent || isPendingChoice}
                       className={`py-4 px-3 rounded-xl border-2 font-medium text-sm transition-all ${
-                        isCurrent
+                        isCurrent || isPendingChoice
                           ? `${disabledStyle} cursor-not-allowed`
                           : isSelected
                           ? activeStyle
@@ -258,6 +273,7 @@ const Home = () => {
                       <div className="text-2xl mb-1.5">{icon}</div>
                       <div>{label}</div>
                       {isCurrent && <div className="text-xs mt-0.5 opacity-60">Текущ</div>}
+                      {isPendingChoice && <div className="text-xs mt-0.5 opacity-60">Чака одобрение</div>}
                     </button>
                   );
                 })}
@@ -270,27 +286,23 @@ const Home = () => {
                       <FaMapMarkerAlt size={11} className="text-slate-400" />
                       Локация <span className="text-red-400">*</span>
                     </label>
-                    <select
+                    <input
+                      list="unenrollment-location-suggestions"
                       value={location}
                       onChange={(event) => setLocation(event.target.value)}
+                      placeholder="Например: София, ж.к. Студентски град, бл. 12"
                       className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 focus:border-[#791c1c] transition text-sm"
-                    >
-                      <option value="">Избери локация</option>
-                      {locationOptions.map((option) => (
+                    />
+                    <datalist id="unenrollment-location-suggestions">
+                      {locationSuggestions.map((option) => (
                         <option key={option} value={option}>
                           {option}
                         </option>
                       ))}
-                    </select>
-                    {location === "Друго" && (
-                      <input
-                        type="text"
-                        value={customLocation}
-                        onChange={(event) => setCustomLocation(event.target.value)}
-                        placeholder="Въведи друга локация"
-                        className="mt-3 w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 focus:border-[#791c1c] transition text-sm"
-                      />
-                    )}
+                    </datalist>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Можете да въведете точен адрес, град или друго уточнение за местоположението.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-600 mb-1.5 flex items-center gap-1.5">
@@ -351,6 +363,8 @@ const Home = () => {
                           ? "bg-amber-100 text-amber-700"
                           : entry.status === "enrolled"
                           ? "bg-green-100 text-green-600"
+                          : entry.status === "unenrolled" && entry.approval_status === "rejected"
+                          ? "bg-red-100 text-red-600"
                           : "bg-slate-100 text-slate-500"
                       }`}
                     >
@@ -363,6 +377,8 @@ const Home = () => {
                             ? "text-amber-700"
                             : entry.status === "enrolled"
                             ? "text-green-700"
+                            : entry.status === "unenrolled" && entry.approval_status === "rejected"
+                            ? "text-red-600"
                             : "text-slate-600"
                         }`}
                       >
@@ -370,6 +386,8 @@ const Home = () => {
                           ? "Отписване в изчакване"
                           : entry.status === "enrolled"
                           ? "Записан"
+                          : entry.approval_status === "rejected"
+                          ? "Отказано отписване"
                           : "Отписан"}
                       </p>
                       {entry.location && (

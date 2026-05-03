@@ -26,6 +26,27 @@ const toLocalDateKey = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const getAttendanceBadgeClass = (attendanceEntry) => {
+  if (!attendanceEntry) return "bg-slate-100 text-slate-500";
+  if (attendanceEntry.approval_status === "pending") return "bg-amber-100 text-amber-700";
+  if (attendanceEntry.status === "enrolled") return "bg-green-100 text-green-700";
+  return "bg-slate-200 text-slate-600";
+};
+
+const getAttendanceCardClass = (attendanceEntry) => {
+  if (!attendanceEntry) return "border-slate-200 bg-white";
+  if (attendanceEntry.approval_status === "pending") return "border-amber-200 bg-amber-50";
+  if (attendanceEntry.status === "enrolled") return "border-green-200 bg-green-50";
+  return "border-slate-200 bg-slate-100";
+};
+
+const getAttendanceLabel = (attendanceEntry) => {
+  if (!attendanceEntry) return null;
+  if (attendanceEntry.approval_status === "pending") return "Чака одобрение";
+  if (attendanceEntry.status === "enrolled") return "Записан";
+  return "Отписан";
+};
+
 const CalendarPanel = ({
   title = "Календар",
   month,
@@ -99,6 +120,24 @@ const CalendarPanel = ({
     year: "numeric",
   });
 
+  const mobileDays = useMemo(
+    () =>
+      gridDays
+        .filter(Boolean)
+        .map((date) => {
+          const dayKey = toLocalDateKey(date);
+          return {
+            date,
+            dayKey,
+            attendanceEntry: attendanceByDay[dayKey] || null,
+            summaryEntry: summaryByDay[dayKey] || null,
+            events: eventDays[dayKey] || [],
+          };
+        })
+        .filter((day) => day.attendanceEntry || day.summaryEntry || day.events.length > 0),
+    [attendanceByDay, eventDays, gridDays, summaryByDay]
+  );
+
   const moveMonth = (delta) => {
     const next = new Date(monthDate.getFullYear(), monthDate.getMonth() + delta, 1);
     onMonthChange(formatMonthValue(next));
@@ -138,7 +177,65 @@ const CalendarPanel = ({
         </div>
       </div>
 
-      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      <div className="sm:hidden">
+        {mobileDays.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
+            Няма активности за този месец.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {mobileDays.map(({ date, dayKey, attendanceEntry, summaryEntry, events: dayEvents }) => (
+              <div key={dayKey} className={`rounded-2xl border p-4 space-y-3 ${getAttendanceCardClass(attendanceEntry)}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {date.toLocaleDateString("bg-BG", { day: "numeric", month: "long" })}
+                    </div>
+                    <div className="text-xs text-slate-400">
+                      {date.toLocaleDateString("bg-BG", { weekday: "long" })}
+                    </div>
+                  </div>
+                  {attendanceEntry && (
+                    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${getAttendanceBadgeClass(attendanceEntry)}`}>
+                      {getAttendanceLabel(attendanceEntry)}
+                    </span>
+                  )}
+                </div>
+
+                {summaryEntry && (
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="rounded-xl bg-white/80 px-2 py-2">
+                      <div className="font-semibold text-slate-700">{summaryEntry.enrolled_count}</div>
+                      <div className="text-slate-400">Записани</div>
+                    </div>
+                    <div className="rounded-xl bg-white/80 px-2 py-2">
+                      <div className="font-semibold text-slate-700">{summaryEntry.unenrolled_count}</div>
+                      <div className="text-slate-400">Отписани</div>
+                    </div>
+                    <div className="rounded-xl bg-white/80 px-2 py-2">
+                      <div className="font-semibold text-slate-700">{summaryEntry.pending_count}</div>
+                      <div className="text-slate-400">Чакащи</div>
+                    </div>
+                  </div>
+                )}
+
+                {dayEvents.length > 0 && (
+                  <div className="space-y-2">
+                    {dayEvents.map((event) => (
+                      <div key={`${event.id}-${dayKey}`} className="rounded-xl bg-white/80 border border-white px-3 py-2">
+                        <div className="font-semibold text-sm text-slate-700 break-words">{event.title}</div>
+                        {event.description && <div className="text-xs text-slate-500 mt-1 break-words">{event.description}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="hidden sm:block -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <div className="min-w-[42rem]">
           <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-slate-400 uppercase tracking-wide">
             {dayNames.map((dayName) => (
@@ -157,16 +254,8 @@ const CalendarPanel = ({
               const daySummary = summaryByDay[dayKey];
               const dayEvents = eventDays[dayKey] || [];
 
-              const attendanceStyle = dayAttendance
-                ? dayAttendance.approval_status === "pending"
-                  ? "border-amber-200 bg-amber-50"
-                  : dayAttendance.status === "enrolled"
-                  ? "border-green-200 bg-green-50"
-                  : "border-slate-200 bg-slate-100"
-                : "border-slate-200 bg-white";
-
               return (
-                <div key={dayKey} className={`min-h-24 sm:min-h-28 rounded-2xl border p-2.5 sm:p-3 flex flex-col gap-2 ${attendanceStyle}`}>
+                <div key={dayKey} className={`min-h-24 sm:min-h-28 rounded-2xl border p-2.5 sm:p-3 flex flex-col gap-2 ${getAttendanceCardClass(dayAttendance)}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-900">{date.getDate()}</span>
                     {dayEvents.length > 0 && (
@@ -178,20 +267,8 @@ const CalendarPanel = ({
 
                   {dayAttendance && (
                     <div className="text-[11px] font-medium">
-                      <span
-                        className={`inline-flex px-2 py-1 rounded-full ${
-                          dayAttendance.approval_status === "pending"
-                            ? "bg-amber-100 text-amber-700"
-                            : dayAttendance.status === "enrolled"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-slate-200 text-slate-600"
-                        }`}
-                      >
-                        {dayAttendance.approval_status === "pending"
-                          ? "Чака одобрение"
-                          : dayAttendance.status === "enrolled"
-                          ? "Записан"
-                          : "Отписан"}
+                      <span className={`inline-flex px-2 py-1 rounded-full ${getAttendanceBadgeClass(dayAttendance)}`}>
+                        {getAttendanceLabel(dayAttendance)}
                       </span>
                     </div>
                   )}

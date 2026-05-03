@@ -102,6 +102,11 @@ const Login = () => {
                   {showPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
                 </button>
               </div>
+              <div className="mt-2 text-right">
+                <Link to="/forgot-password" className="text-sm text-[#791c1c] font-semibold hover:underline">
+                  Забравена парола?
+                </Link>
+              </div>
             </div>
 
             {error && (

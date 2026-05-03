@@ -8,11 +8,22 @@ class Database {
     public $conn;
 
     public function __construct() {
-        $this->host     = getenv('DB_HOST')     ?: 'localhost';
-        $this->port     = getenv('DB_PORT')     ?: '3306';
-        $this->db_name  = getenv('DB_NAME')     ?: 'checkin_checkout';
-        $this->username = getenv('DB_USER')     ?: 'root';
-        $this->password = getenv('DB_PASSWORD') ?: '';
+        $databaseUrl = getenv('DATABASE_URL') ?: getenv('MYSQL_URL') ?: '';
+        if ($databaseUrl !== '') {
+            $parts = parse_url($databaseUrl);
+            $this->host = $parts['host'] ?? 'localhost';
+            $this->port = (string) ($parts['port'] ?? 3306);
+            $this->db_name = isset($parts['path']) ? ltrim($parts['path'], '/') : 'checkin_checkout';
+            $this->username = $parts['user'] ?? 'root';
+            $this->password = $parts['pass'] ?? '';
+            return;
+        }
+
+        $this->host = getenv('DB_HOST') ?: getenv('MYSQLHOST') ?: 'localhost';
+        $this->port = getenv('DB_PORT') ?: getenv('MYSQLPORT') ?: '3306';
+        $this->db_name = getenv('DB_NAME') ?: getenv('MYSQLDATABASE') ?: 'checkin_checkout';
+        $this->username = getenv('DB_USER') ?: getenv('MYSQLUSER') ?: 'root';
+        $this->password = getenv('DB_PASSWORD') ?: getenv('MYSQLPASSWORD') ?: '';
     }
 
     public function getConnection() {
@@ -21,6 +32,7 @@ class Database {
             $dsn = "mysql:host={$this->host};port={$this->port};dbname={$this->db_name};charset=utf8mb4";
             $this->conn = new PDO($dsn, $this->username, $this->password);
             $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+            $this->conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
             $this->initializeSchema();
         } catch (PDOException $e) {
             http_response_code(500);
@@ -83,6 +95,18 @@ class Database {
                 status ENUM('sent', 'failed', 'logged') NOT NULL DEFAULT 'logged',
                 error_message TEXT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+
+        $this->conn->exec("
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                token_hash CHAR(64) NOT NULL UNIQUE,
+                expires_at DATETIME NOT NULL,
+                used_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ");
     }

@@ -122,6 +122,68 @@ class User
         return $stmt->execute([':id' => $userId]);
     }
 
+    public function updatePassword(int $userId, string $password): bool
+    {
+        $stmt = $this->conn->prepare("UPDATE {$this->table} SET password_hash = :password_hash WHERE id = :id");
+
+        return $stmt->execute([
+            ':password_hash' => password_hash($password, PASSWORD_BCRYPT),
+            ':id' => $userId,
+        ]);
+    }
+
+    public function createPasswordResetToken(int $userId, string $tokenHash, string $expiresAt): bool
+    {
+        $stmt = $this->conn->prepare(
+            "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+             VALUES (:user_id, :token_hash, :expires_at)"
+        );
+
+        return $stmt->execute([
+            ':user_id' => $userId,
+            ':token_hash' => $tokenHash,
+            ':expires_at' => $expiresAt,
+        ]);
+    }
+
+    public function invalidatePasswordResetTokens(int $userId): bool
+    {
+        $stmt = $this->conn->prepare(
+            "UPDATE password_reset_tokens
+             SET used_at = COALESCE(used_at, NOW())
+             WHERE user_id = :user_id AND used_at IS NULL"
+        );
+
+        return $stmt->execute([':user_id' => $userId]);
+    }
+
+    public function getActivePasswordResetToken(string $tokenHash): ?array
+    {
+        $stmt = $this->conn->prepare(
+            "SELECT id, user_id, token_hash, expires_at, used_at, created_at
+             FROM password_reset_tokens
+             WHERE token_hash = :token_hash
+               AND used_at IS NULL
+               AND expires_at >= NOW()
+             LIMIT 1"
+        );
+        $stmt->execute([':token_hash' => $tokenHash]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $result ?: null;
+    }
+
+    public function markPasswordResetTokenUsed(int $tokenId): bool
+    {
+        $stmt = $this->conn->prepare(
+            "UPDATE password_reset_tokens
+             SET used_at = NOW()
+             WHERE id = :id AND used_at IS NULL"
+        );
+
+        return $stmt->execute([':id' => $tokenId]);
+    }
+
     public function getLastStatus(int $userId): ?string
     {
         $stmt = $this->conn->prepare(
@@ -238,10 +300,12 @@ class User
              WHERE id = :id AND approval_status = 'pending'"
         );
 
-        return $stmt->execute([
+        $stmt->execute([
             ':admin_id' => $adminId,
             ':id' => $statusId,
         ]);
+
+        return $stmt->rowCount() > 0;
     }
 
     public function rejectUnenrollment(int $statusId, int $adminId): bool
@@ -252,10 +316,12 @@ class User
              WHERE id = :id AND approval_status = 'pending'"
         );
 
-        return $stmt->execute([
+        $stmt->execute([
             ':admin_id' => $adminId,
             ':id' => $statusId,
         ]);
+
+        return $stmt->rowCount() > 0;
     }
 
     public function getAllPendingRequests(): array
