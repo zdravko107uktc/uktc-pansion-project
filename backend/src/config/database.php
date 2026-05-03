@@ -11,11 +11,15 @@ class Database {
         $databaseUrl = getenv('DATABASE_URL') ?: getenv('MYSQL_URL') ?: '';
         if ($databaseUrl !== '') {
             $parts = parse_url($databaseUrl);
+            if ($parts === false) {
+                error_log('Invalid database URL provided via DATABASE_URL or MYSQL_URL.');
+                $parts = [];
+            }
             $this->host = $parts['host'] ?? 'localhost';
             $this->port = (string) ($parts['port'] ?? 3306);
-            $this->db_name = isset($parts['path']) ? ltrim($parts['path'], '/') : 'checkin_checkout';
-            $this->username = $parts['user'] ?? 'root';
-            $this->password = $parts['pass'] ?? '';
+            $this->db_name = isset($parts['path']) ? rawurldecode(ltrim($parts['path'], '/')) : 'checkin_checkout';
+            $this->username = isset($parts['user']) ? rawurldecode($parts['user']) : 'root';
+            $this->password = isset($parts['pass']) ? rawurldecode($parts['pass']) : '';
             return;
         }
 
@@ -35,6 +39,18 @@ class Database {
             $this->conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
             $this->initializeSchema();
         } catch (PDOException $e) {
+            $safeHost = $this->host ?: '(empty)';
+            $safePort = $this->port ?: '(empty)';
+            $safeDb = $this->db_name ?: '(empty)';
+            $safeUser = $this->username ?: '(empty)';
+            error_log(sprintf(
+                'Database bootstrap failed. host=%s port=%s db=%s user=%s message=%s',
+                $safeHost,
+                $safePort,
+                $safeDb,
+                $safeUser,
+                $e->getMessage()
+            ));
             http_response_code(500);
             echo json_encode(["message" => "Database connection error."]);
             exit;

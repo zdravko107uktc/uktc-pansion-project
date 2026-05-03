@@ -36,9 +36,21 @@ Create one Railway service for the backend from this repo root.
 Config included:
 - [railway.json](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/railway.json)
 
-Provision a MySQL database in Railway and either:
-- let Railway inject `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, `MYSQLPASSWORD`
-- or define `DATABASE_URL`
+Provision a MySQL database in Railway and then explicitly link its variables into the backend service.
+
+Recommended backend variable mapping in Railway:
+- `MYSQLHOST=${{MySQL.MYSQLHOST}}`
+- `MYSQLPORT=${{MySQL.MYSQLPORT}}`
+- `MYSQLDATABASE=${{MySQL.MYSQLDATABASE}}`
+- `MYSQLUSER=${{MySQL.MYSQLUSER}}`
+- `MYSQLPASSWORD=${{MySQL.MYSQLPASSWORD}}`
+
+Alternative:
+- `MYSQL_URL=${{MySQL.MYSQL_URL}}`
+
+Important:
+- Railway does not automatically inject another service's database variables into your backend unless you add these references in the backend service `Variables` tab.
+- If these variables are missing, this app falls back to `localhost`, which causes the generic `Database connection error`.
 
 Recommended Railway backend variables:
 - `JWT_SECRET`
