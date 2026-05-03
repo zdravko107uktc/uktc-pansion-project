@@ -71,6 +71,7 @@ class Database {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ");
+        $this->ensureUserSchema();
 
         $this->conn->exec("
             CREATE TABLE IF NOT EXISTS student_status (
@@ -87,6 +88,7 @@ class Database {
                 FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
             )
         ");
+        $this->ensureStudentStatusSchema();
 
         $this->conn->exec("
             CREATE TABLE IF NOT EXISTS calendar_events (
@@ -100,6 +102,7 @@ class Database {
                 FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
             )
         ");
+        $this->ensureCalendarEventSchema();
 
         $this->conn->exec("
             CREATE TABLE IF NOT EXISTS email_notifications (
@@ -113,6 +116,7 @@ class Database {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ");
+        $this->ensureEmailNotificationSchema();
 
         $this->conn->exec("
             CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -125,5 +129,162 @@ class Database {
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         ");
+        $this->ensurePasswordResetSchema();
+    }
+
+    private function ensureUserSchema(): void
+    {
+        $this->ensureColumn(
+            'users',
+            'role',
+            "ALTER TABLE users ADD COLUMN role ENUM('admin', 'student', 'counselor') NOT NULL DEFAULT 'student'"
+        );
+        $this->ensureColumn(
+            'users',
+            'dormitory',
+            "ALTER TABLE users ADD COLUMN dormitory ENUM('1', '2') NULL"
+        );
+        $this->conn->exec("ALTER TABLE users MODIFY COLUMN role ENUM('admin', 'student', 'counselor') NOT NULL DEFAULT 'student'");
+        $this->conn->exec("ALTER TABLE users MODIFY COLUMN dormitory ENUM('1', '2') NULL");
+    }
+
+    private function ensureStudentStatusSchema(): void
+    {
+        $this->ensureColumn(
+            'student_status',
+            'location',
+            "ALTER TABLE student_status ADD COLUMN location VARCHAR(255) NULL"
+        );
+        $this->ensureColumn(
+            'student_status',
+            'signature',
+            "ALTER TABLE student_status ADD COLUMN signature MEDIUMTEXT NULL"
+        );
+        $this->ensureColumn(
+            'student_status',
+            'approval_status',
+            "ALTER TABLE student_status ADD COLUMN approval_status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved'"
+        );
+        $this->ensureColumn(
+            'student_status',
+            'approved_by',
+            "ALTER TABLE student_status ADD COLUMN approved_by INT NULL"
+        );
+        $this->ensureColumn(
+            'student_status',
+            'approved_at',
+            "ALTER TABLE student_status ADD COLUMN approved_at TIMESTAMP NULL"
+        );
+        $this->conn->exec("ALTER TABLE student_status MODIFY COLUMN location VARCHAR(255) NULL");
+        $this->conn->exec("ALTER TABLE student_status MODIFY COLUMN signature MEDIUMTEXT NULL");
+        $this->conn->exec("ALTER TABLE student_status MODIFY COLUMN approval_status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved'");
+        $this->ensureForeignKey(
+            'student_status',
+            'approved_by',
+            'users',
+            'id',
+            "ALTER TABLE student_status ADD CONSTRAINT fk_student_status_approved_by FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL"
+        );
+    }
+
+    private function ensureCalendarEventSchema(): void
+    {
+        $this->ensureColumn(
+            'calendar_events',
+            'description',
+            "ALTER TABLE calendar_events ADD COLUMN description TEXT NULL"
+        );
+        $this->ensureColumn(
+            'calendar_events',
+            'end_date',
+            "ALTER TABLE calendar_events ADD COLUMN end_date DATE NULL"
+        );
+        $this->conn->exec("ALTER TABLE calendar_events MODIFY COLUMN description TEXT NULL");
+        $this->conn->exec("ALTER TABLE calendar_events MODIFY COLUMN end_date DATE NULL");
+    }
+
+    private function ensureEmailNotificationSchema(): void
+    {
+        $this->ensureColumn(
+            'email_notifications',
+            'event_type',
+            "ALTER TABLE email_notifications ADD COLUMN event_type VARCHAR(100) NOT NULL DEFAULT 'generic'"
+        );
+        $this->ensureColumn(
+            'email_notifications',
+            'status',
+            "ALTER TABLE email_notifications ADD COLUMN status ENUM('sent', 'failed', 'logged') NOT NULL DEFAULT 'logged'"
+        );
+        $this->ensureColumn(
+            'email_notifications',
+            'error_message',
+            "ALTER TABLE email_notifications ADD COLUMN error_message TEXT NULL"
+        );
+        $this->conn->exec("ALTER TABLE email_notifications MODIFY COLUMN status ENUM('sent', 'failed', 'logged') NOT NULL DEFAULT 'logged'");
+        $this->conn->exec("ALTER TABLE email_notifications MODIFY COLUMN error_message TEXT NULL");
+    }
+
+    private function ensurePasswordResetSchema(): void
+    {
+        $this->ensureColumn(
+            'password_reset_tokens',
+            'used_at',
+            "ALTER TABLE password_reset_tokens ADD COLUMN used_at DATETIME NULL"
+        );
+    }
+
+    private function ensureColumn(string $tableName, string $columnName, string $alterSql): void
+    {
+        if ($this->columnExists($tableName, $columnName)) {
+            return;
+        }
+
+        $this->conn->exec($alterSql);
+    }
+
+    private function ensureForeignKey(
+        string $tableName,
+        string $columnName,
+        string $referencedTable,
+        string $referencedColumn,
+        string $alterSql
+    ): void
+    {
+        $stmt = $this->conn->prepare(
+            "SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table_name
+               AND COLUMN_NAME = :column_name
+               AND REFERENCED_TABLE_NAME = :referenced_table
+               AND REFERENCED_COLUMN_NAME = :referenced_column"
+        );
+        $stmt->execute([
+            ':table_name' => $tableName,
+            ':column_name' => $columnName,
+            ':referenced_table' => $referencedTable,
+            ':referenced_column' => $referencedColumn,
+        ]);
+
+        if ((int) $stmt->fetchColumn() > 0) {
+            return;
+        }
+
+        $this->conn->exec($alterSql);
+    }
+
+    private function columnExists(string $tableName, string $columnName): bool
+    {
+        $stmt = $this->conn->prepare(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table_name
+               AND COLUMN_NAME = :column_name"
+        );
+        $stmt->execute([
+            ':table_name' => $tableName,
+            ':column_name' => $columnName,
+        ]);
+
+        return (int) $stmt->fetchColumn() > 0;
     }
 }
