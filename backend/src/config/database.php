@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/../services/AppClock.php';
+
 class Database {
     private $host;
     private $port;
@@ -23,7 +25,12 @@ class Database {
             return;
         }
 
-        $this->host = getenv('DB_HOST') ?: getenv('MYSQLHOST') ?: 'localhost';
+        $dbHost = getenv('DB_HOST') ?: getenv('MYSQLHOST') ?: '';
+        if ($dbHost === '') {
+            error_log('No database environment variables were found. Falling back to localhost defaults. Set MYSQLHOST/MYSQLPORT/MYSQLDATABASE/MYSQLUSER/MYSQLPASSWORD or MYSQL_URL in Railway.');
+        }
+
+        $this->host = $dbHost !== '' ? $dbHost : 'localhost';
         $this->port = getenv('DB_PORT') ?: getenv('MYSQLPORT') ?: '3306';
         $this->db_name = getenv('DB_NAME') ?: getenv('MYSQLDATABASE') ?: 'checkin_checkout';
         $this->username = getenv('DB_USER') ?: getenv('MYSQLUSER') ?: 'root';
@@ -37,6 +44,7 @@ class Database {
             $this->conn = new PDO($dsn, $this->username, $this->password);
             $this->conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             $this->conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+            $this->applyConnectionTimezone();
             $this->initializeSchema();
         } catch (PDOException $e) {
             $safeHost = $this->host ?: '(empty)';
@@ -80,6 +88,7 @@ class Database {
                 status ENUM('enrolled', 'unenrolled') NOT NULL,
                 location VARCHAR(255) NULL,
                 signature MEDIUMTEXT NULL,
+                review_signature MEDIUMTEXT NULL,
                 approval_status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved',
                 approved_by INT NULL,
                 approved_at TIMESTAMP NULL,
@@ -162,6 +171,11 @@ class Database {
         );
         $this->ensureColumn(
             'student_status',
+            'review_signature',
+            "ALTER TABLE student_status ADD COLUMN review_signature MEDIUMTEXT NULL"
+        );
+        $this->ensureColumn(
+            'student_status',
             'approval_status',
             "ALTER TABLE student_status ADD COLUMN approval_status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved'"
         );
@@ -177,6 +191,7 @@ class Database {
         );
         $this->conn->exec("ALTER TABLE student_status MODIFY COLUMN location VARCHAR(255) NULL");
         $this->conn->exec("ALTER TABLE student_status MODIFY COLUMN signature MEDIUMTEXT NULL");
+        $this->conn->exec("ALTER TABLE student_status MODIFY COLUMN review_signature MEDIUMTEXT NULL");
         $this->conn->exec("ALTER TABLE student_status MODIFY COLUMN approval_status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'approved'");
         $this->ensureForeignKey(
             'student_status',
@@ -286,5 +301,11 @@ class Database {
         ]);
 
         return (int) $stmt->fetchColumn() > 0;
+    }
+
+    private function applyConnectionTimezone(): void
+    {
+        $offset = AppClock::currentMysqlOffset();
+        $this->conn->exec("SET time_zone = '{$offset}'");
     }
 }

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { FaEye, FaEyeSlash } from "react-icons/fa";
-import { login, API_BASE } from "../api/auth";
+import { FaEye, FaEyeSlash, FaExclamationTriangle } from "react-icons/fa";
+import { getCurrentUser, login } from "../api/auth";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -11,26 +11,28 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
+  const handleLogin = async (event) => {
+    event.preventDefault();
     setError("");
     setLoading(true);
+
     try {
-      const data = await login(email, password);
-      if (data?.token) {
-        localStorage.setItem("token", data.token);
-        const res = await fetch(`${API_BASE}/user`, {
-          headers: { Authorization: `Bearer ${data.token}`, Accept: "application/json" },
-        });
-        const result = await res.json();
-        if (res.ok && result.user) {
-          navigate(result.user.role === "student" ? "/home" : "/admin");
-        } else {
-          setError("Неуспешно извличане на потребителска информация.");
-        }
-      } else {
-        setError(data?.message || "Грешен email или парола.");
+      const data = await login(email.trim(), password);
+      if (!data?.token) {
+        setError(data?.message || "Грешен имейл или парола.");
+        return;
       }
+
+      localStorage.setItem("token", data.token);
+      const currentUser = await getCurrentUser(data.token);
+
+      if (!currentUser) {
+        localStorage.removeItem("token");
+        setError("Неуспешно зареждане на профила.");
+        return;
+      }
+
+      navigate(currentUser.role === "student" ? "/home" : "/admin");
     } catch {
       setError("Грешка при свързване със сървъра.");
     } finally {
@@ -76,19 +78,20 @@ const Login = () => {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(event) => setEmail(event.target.value)}
                 required
                 placeholder="your@email.com"
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#791c1c]/30 focus:border-[#791c1c] transition"
               />
             </div>
+
             <div>
               <label className="block text-sm font-semibold text-gray-600 mb-1.5">Парола</label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(event) => setPassword(event.target.value)}
                   required
                   placeholder="••••••••"
                   className="w-full px-4 py-3 pr-11 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#791c1c]/30 focus:border-[#791c1c] transition"
@@ -111,7 +114,7 @@ const Login = () => {
 
             {error && (
               <div className="bg-red-50 border border-red-100 rounded-xl p-3.5 text-red-600 text-sm flex items-center gap-2.5">
-                <span className="text-base">⚠</span>
+                <FaExclamationTriangle size={14} />
                 {error}
               </div>
             )}

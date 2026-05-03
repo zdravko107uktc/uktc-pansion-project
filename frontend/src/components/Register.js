@@ -1,24 +1,18 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { FaEye, FaEyeSlash, FaCheck, FaTimes, FaShieldAlt } from "react-icons/fa";
-import { register } from "../api/auth";
-
-const ADMIN_EMAIL = "zdravko.h.anev@gmail.com";
-
-const pwdScore = (password) =>
-  [
-    password.length >= 8,
-    /[A-Z]/.test(password),
-    /[a-z]/.test(password),
-    /[0-9]/.test(password),
-    /[^A-Za-z0-9]/.test(password),
-  ].filter(Boolean).length;
+import { register, SYSTEM_ADMIN_EMAIL } from "../api/auth";
+import {
+  passwordPolicyChecks,
+  passwordStrengthScore,
+  validatePassword,
+} from "../utils/passwordPolicy";
 
 const getErrors = ({ name, email, password, confirmPassword, dormitory }) => {
   const errors = {};
   const trimmedName = name.trim();
   const trimmedEmail = email.trim().toLowerCase();
-  const isAdminEmail = trimmedEmail === ADMIN_EMAIL;
+  const isAdminEmail = trimmedEmail === SYSTEM_ADMIN_EMAIL;
 
   if (!trimmedName) {
     errors.name = "Полето е задължително.";
@@ -26,9 +20,9 @@ const getErrors = ({ name, email, password, confirmPassword, dormitory }) => {
     errors.name = "Поне 3 символа.";
   } else if (trimmedName.length > 100) {
     errors.name = "Максимум 100 символа.";
-  } else if (!/^[А-Яа-яA-Za-z\s-]+$/.test(trimmedName)) {
+  } else if (!/^[\p{L}\s-]+$/u.test(trimmedName)) {
     errors.name = "Само букви, интервали и тирета.";
-  } else if (trimmedName.split(/\s+/).length < 2) {
+  } else if (trimmedName.split(/\s+/).filter(Boolean).length < 2) {
     errors.name = "Въведете собствено и фамилно име.";
   }
 
@@ -38,18 +32,9 @@ const getErrors = ({ name, email, password, confirmPassword, dormitory }) => {
     errors.email = "Невалиден имейл адрес.";
   }
 
-  if (!password) {
-    errors.password = "Полето е задължително.";
-  } else if (password.length < 8) {
-    errors.password = "Поне 8 символа.";
-  } else if (password.length > 72) {
-    errors.password = "Максимум 72 символа.";
-  } else if (!/[A-Z]/.test(password)) {
-    errors.password = "Трябва поне една главна буква.";
-  } else if (!/[a-z]/.test(password)) {
-    errors.password = "Трябва поне една малка буква.";
-  } else if (!/[0-9]/.test(password)) {
-    errors.password = "Трябва поне една цифра.";
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    errors.password = passwordError;
   }
 
   if (!confirmPassword) {
@@ -79,7 +64,7 @@ const Register = () => {
   const navigate = useNavigate();
 
   const normalizedEmail = email.trim().toLowerCase();
-  const isAdminEmail = normalizedEmail === ADMIN_EMAIL;
+  const isAdminEmail = normalizedEmail === SYSTEM_ADMIN_EMAIL;
   const errors = useMemo(
     () => getErrors({ name, email, password, confirmPassword, dormitory }),
     [name, email, password, confirmPassword, dormitory]
@@ -114,19 +99,14 @@ const Register = () => {
     setLoading(true);
 
     try {
-      const data = await register(
-        name.trim(),
-        normalizedEmail,
-        password,
-        isAdminEmail ? null : dormitory
-      );
-
-      if (data.token) {
+      const data = await register(name.trim(), normalizedEmail, password, isAdminEmail ? null : dormitory);
+      if (data?.token) {
         localStorage.setItem("token", data.token);
         navigate("/");
-      } else {
-        setServerError(data.message || "Грешка при регистрация.");
+        return;
       }
+
+      setServerError(data?.message || "Грешка при регистрация.");
     } catch {
       setServerError("Грешка при свързване със сървъра.");
     } finally {
@@ -134,20 +114,15 @@ const Register = () => {
     }
   };
 
-  const score = pwdScore(password);
+  const score = passwordStrengthScore(password);
   const strengthInfo =
     score <= 1
       ? { label: "Слаба", width: "w-1/4", color: "bg-red-400", text: "text-red-500" }
-      : score <= 3
+      : score <= 4
       ? { label: "Средна", width: "w-2/4", color: "bg-yellow-400", text: "text-yellow-600" }
       : { label: "Силна", width: "w-full", color: "bg-green-500", text: "text-green-600" };
 
-  const passwordRequirements = [
-    { label: "Поне 8 символа", ok: password.length >= 8 },
-    { label: "Главна буква (A-Z)", ok: /[A-Z]/.test(password) },
-    { label: "Малка буква (a-z)", ok: /[a-z]/.test(password) },
-    { label: "Цифра (0-9)", ok: /[0-9]/.test(password) },
-  ];
+  const passwordRequirements = passwordPolicyChecks(password);
 
   return (
     <div className="min-h-screen bg-[#791c1c] flex items-center justify-center p-4">
@@ -157,9 +132,7 @@ const Register = () => {
             <span className="text-[#791c1c] font-black text-3xl leading-none select-none">У</span>
           </div>
           <h1 className="text-white text-xl font-bold tracking-widest">УКТЦ</h1>
-          <p className="text-red-200 text-xs uppercase tracking-widest mt-0.5">
-            Система за присъствие
-          </p>
+          <p className="text-red-200 text-xs uppercase tracking-widest mt-0.5">Система за присъствие</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-8">
@@ -177,8 +150,8 @@ const Register = () => {
                 <FaShieldAlt size={14} />
               </div>
               <div className="text-sm text-slate-600">
-                Роля не се избира ръчно. Само <span className="font-semibold">{ADMIN_EMAIL}</span>
-                {" "}получава администраторски права, а всички останали профили се създават като студенти.
+                Роля не се избира ръчно. Само <span className="font-semibold">{SYSTEM_ADMIN_EMAIL}</span>{" "}
+                получава администраторски права, а всички останали профили се създават като ученици.
               </div>
             </div>
           </div>
@@ -210,9 +183,7 @@ const Register = () => {
               />
               {fieldError("email") && <FieldMsg type="error">{errors.email}</FieldMsg>}
               {fieldOk("email") && <FieldMsg type="ok">Валиден адрес</FieldMsg>}
-              {isAdminEmail && (
-                <FieldMsg type="ok">Този имейл ще бъде регистриран като администратор.</FieldMsg>
-              )}
+              {isAdminEmail && <FieldMsg type="ok">Този имейл ще бъде регистриран като администратор.</FieldMsg>}
             </div>
 
             <div>
@@ -254,15 +225,9 @@ const Register = () => {
                   {passwordRequirements.map(({ label, ok }) => (
                     <li
                       key={label}
-                      className={`text-xs flex items-center gap-1.5 ${
-                        ok ? "text-green-600" : "text-slate-400"
-                      }`}
+                      className={`text-xs flex items-center gap-1.5 ${ok ? "text-green-600" : "text-slate-400"}`}
                     >
-                      {ok ? (
-                        <FaCheck size={9} />
-                      ) : (
-                        <span className="inline-block w-2 h-2 rounded-full border border-slate-300" />
-                      )}
+                      {ok ? <FaCheck size={9} /> : <span className="inline-block w-2 h-2 rounded-full border border-slate-300" />}
                       {label}
                     </li>
                   ))}
@@ -273,9 +238,7 @@ const Register = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-600 mb-1.5">
-                Потвърди парола
-              </label>
+              <label className="block text-sm font-semibold text-gray-600 mb-1.5">Потвърди паролата</label>
               <div className="relative">
                 <input
                   type={showConfirmPassword ? "text" : "password"}
@@ -294,19 +257,13 @@ const Register = () => {
                   {showConfirmPassword ? <FaEyeSlash size={16} /> : <FaEye size={16} />}
                 </button>
               </div>
-              {fieldError("confirmPassword") && (
-                <FieldMsg type="error">{errors.confirmPassword}</FieldMsg>
-              )}
-              {fieldOk("confirmPassword") && (
-                <FieldMsg type="ok">Паролите съвпадат</FieldMsg>
-              )}
+              {fieldError("confirmPassword") && <FieldMsg type="error">{errors.confirmPassword}</FieldMsg>}
+              {fieldOk("confirmPassword") && <FieldMsg type="ok">Паролите съвпадат</FieldMsg>}
             </div>
 
             {!isAdminEmail && (
               <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-2">
-                  Общежитие
-                </label>
+                <label className="block text-sm font-semibold text-gray-600 mb-2">Общежитие</label>
                 <div className="grid grid-cols-2 gap-2">
                   {["1", "2"].map((value) => (
                     <button

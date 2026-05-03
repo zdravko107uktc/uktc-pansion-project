@@ -3,6 +3,7 @@ require_once __DIR__ . '/../models/User.php';
 require_once __DIR__ . '/../config/jwt.php';
 require_once __DIR__ . '/../middleware/jwtCheckToken.php';
 require_once __DIR__ . '/../services/SystemRoles.php';
+require_once __DIR__ . '/../services/AppClock.php';
 require_once __DIR__ . '/../services/EmailNotifier.php';
 require_once __DIR__ . '/../services/ApiException.php';
 require_once __DIR__ . '/../services/StudentStatusWorkflow.php';
@@ -134,8 +135,8 @@ function validateEmailAddress(string $email): void
 
 function validatePasswordValue(string $password): void
 {
-    if (strlen($password) < 8) {
-        jsonResponse(['message' => 'Паролата трябва да е поне 8 символа.'], 400);
+    if (strlen($password) < 10) {
+        jsonResponse(['message' => 'Паролата трябва да е поне 10 символа.'], 400);
     }
     if (strlen($password) > 72) {
         jsonResponse(['message' => 'Паролата не може да е повече от 72 символа.'], 400);
@@ -148,6 +149,12 @@ function validatePasswordValue(string $password): void
     }
     if (!preg_match('/[0-9]/', $password)) {
         jsonResponse(['message' => 'Паролата трябва да съдържа поне една цифра.'], 400);
+    }
+    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
+        jsonResponse(['message' => 'Паролата трябва да съдържа поне един специален символ.'], 400);
+    }
+    if (preg_match('/\s/', $password)) {
+        jsonResponse(['message' => 'Паролата не може да съдържа интервали.'], 400);
     }
 }
 
@@ -191,6 +198,36 @@ function monthDateLabel(string $date): string
     return date('d.m.Y', strtotime($date));
 }
 
+function displayRoleLabel(string $role): string
+{
+    return $role === 'admin' ? 'администратор' : ($role === 'counselor' ? 'възпитател' : 'ученик');
+}
+
+function normalizeDateTimeValue(?string $value): ?string
+{
+    if ($value === null || trim($value) === '') {
+        return null;
+    }
+
+    return AppClock::parse($value)?->format(DateTimeInterface::ATOM);
+}
+
+function normalizeDateTimeFields(array $records, array $fields): array
+{
+    return array_map(
+        static function (array $record) use ($fields): array {
+            foreach ($fields as $field) {
+                if (array_key_exists($field, $record)) {
+                    $record[$field] = normalizeDateTimeValue($record[$field]);
+                }
+            }
+
+            return $record;
+        },
+        $records
+    );
+}
+
 if ($requestMethod === 'POST' && $action === 'update_status') {
     $userId = authenticate();
 
@@ -206,9 +243,10 @@ if ($requestMethod === 'POST' && ($action === 'approve_unenrollment' || $action 
     $payload = readJsonBody();
     $statusId = (int) ($payload['statusId'] ?? 0);
     $decision = $action === 'approve_unenrollment' ? 'approve' : 'reject';
+    $reviewSignature = $payload['reviewSignature'] ?? null;
 
     try {
-        jsonResponse($studentStatusWorkflow->reviewUnenrollmentRequest((int) $userId, $statusId, $decision));
+        jsonResponse($studentStatusWorkflow->reviewUnenrollmentRequest((int) $userId, $statusId, $decision, $reviewSignature));
     } catch (ApiException $exception) {
         jsonResponse($exception->getPayload(), $exception->getStatusCode());
     }
@@ -293,7 +331,7 @@ if ($requestMethod === 'POST') {
             $token = JwtHandler::generateToken((int) $createdUser['id']);
         }
 
-        $roleLabel = $role === 'admin' ? 'администратор' : ($role === 'counselor' ? 'възпитател' : 'студент');
+        $roleLabel = $role === 'admin' ? 'администратор' : ($role === 'counselor' ? 'възпитател' : 'ученик');
         $welcomeBody = "Здравейте, {$name},\n\n"
             . "Вашият профил в UKTC TESSIS беше създаден успешно.\n"
             . "Роля: {$roleLabel}\n"
@@ -330,115 +368,16 @@ if ($requestMethod === 'POST') {
         $token = JwtHandler::generateToken((int) $userData['id']);
 
         $loginBody = "Здравейте, {$userData['full_name']},\n\n"
-            . 'Има нов вход във вашия акаунт в UKTC TESSIS на ' . date('d.m.Y H:i') . ".\n\n"
+            . 'Има нов вход във вашия акаунт в UKTC TESSIS на ' . AppClock::formatBg() . ".\n\n"
             . 'Ако не сте били вие, сменете паролата си.';
         $notifier->send($userData['email'], 'Успешен вход в UKTC TESSIS', $loginBody, 'login_user');
 
         $adminBody = "Потребител влезе в системата.\n\n"
-            . "Име: {$userData['full_name']}\nИмейл: {$userData['email']}\nРоля: {$userData['role']}\n"
-            . 'Час: ' . date('d.m.Y H:i');
+            . "Име: {$userData['full_name']}\nИмейл: {$userData['email']}\nРоля: " . displayRoleLabel($userData['role']) . "\n"
+            . 'Час: ' . AppClock::formatBg();
         sendAdminNotification($notifier, 'Вход в UKTC TESSIS', $adminBody, 'login_admin');
 
         jsonResponse(['message' => 'Входът е успешен.', 'token' => $token]);
-    }
-
-    if ($action === 'update_status') {
-        $userId = authenticate();
-        $currentUser = $user->ensureSystemRoleById((int) $userId);
-        if (!$currentUser || $currentUser['role'] !== 'student') {
-            jsonResponse(['message' => 'Само студенти могат да променят своя статус.'], 403);
-        }
-
-        $status = $data['status'] ?? '';
-        if (!in_array($status, ['enrolled', 'unenrolled'], true)) {
-            jsonResponse(['message' => 'Невалиден статус.'], 400);
-        }
-
-        if ($user->hasPendingRequest((int) $userId)) {
-            jsonResponse(['message' => 'Имате чакаща заявка за отписване. Изчакайте администраторско решение.'], 400);
-        }
-
-        $lastStatus = $user->getLastStatus((int) $userId);
-        if ($lastStatus === $status) {
-            jsonResponse(['message' => $status === 'enrolled' ? 'Вече сте записани.' : 'Вече сте отписани.'], 400);
-        }
-
-        $location = $status === 'unenrolled' ? trim($data['location'] ?? '') : null;
-        $signature = $status === 'unenrolled' ? ($data['signature'] ?? null) : null;
-        if ($status === 'unenrolled' && $location === '') {
-            jsonResponse(['message' => 'Моля, въведете локация при отписване.'], 400);
-        }
-
-        if (!$user->updateStudentStatus((int) $userId, $status, $location, $signature)) {
-            jsonResponse(['message' => 'Грешка при записване.'], 500);
-        }
-
-        if ($status === 'unenrolled') {
-            $userBody = "Заявката ви за отписване е подадена успешно.\n\nЛокация: {$location}\nСтатус: очаква одобрение.";
-            $notifier->send($currentUser['email'], 'Подадена заявка за отписване', $userBody, 'unenroll_request_user');
-
-            $adminBody = "Нова заявка за отписване.\n\n"
-                . "Студент: {$currentUser['full_name']}\nИмейл: {$currentUser['email']}\n"
-                . "Общежитие: {$currentUser['dormitory']}\nЛокация: {$location}";
-            sendAdminNotification($notifier, 'Нова заявка за отписване', $adminBody, 'unenroll_request_admin');
-
-            jsonResponse(['message' => 'Заявката е изпратена. Изчаква одобрение от администратора.']);
-        }
-
-        $notifier->send(
-            $currentUser['email'],
-            'Потвърдено записване',
-            "Статусът ви е променен успешно на \"Записан\".\n\nЧас: " . date('d.m.Y H:i'),
-            'enrolled_user'
-        );
-        sendAdminNotification(
-            $notifier,
-            'Студент се записа',
-            "Студент: {$currentUser['full_name']}\nИмейл: {$currentUser['email']}\nОбщежитие: {$currentUser['dormitory']}",
-            'enrolled_admin'
-        );
-
-        jsonResponse(['message' => 'Статусът е успешно актуализиран.']);
-    }
-
-    if ($action === 'approve_unenrollment' || $action === 'reject_unenrollment') {
-        $userId = authenticate();
-        $adminUser = requireStaffAccess($user, (int) $userId);
-        $statusId = (int) ($data['statusId'] ?? 0);
-        if (!$statusId) {
-            jsonResponse(['message' => 'Липсва statusId.'], 400);
-        }
-
-        $pendingRequest = $user->getPendingRequestById($statusId);
-        if (!$pendingRequest || $pendingRequest['approval_status'] !== 'pending') {
-            jsonResponse(['message' => 'Заявката не е намерена или вече е обработена.'], 404);
-        }
-        if ($adminUser['role'] === 'counselor' && $adminUser['dormitory'] !== $pendingRequest['student_dormitory']) {
-            jsonResponse(['message' => 'Нямате достъп до заявки от друго общежитие.'], 403);
-        }
-
-        $success = $action === 'approve_unenrollment'
-            ? $user->approveUnenrollment($statusId, (int) $userId)
-            : $user->rejectUnenrollment($statusId, (int) $userId);
-
-        if (!$success) {
-            jsonResponse(['message' => 'Грешка при обработка на заявката.'], 500);
-        }
-
-        $studentSubject = $action === 'approve_unenrollment' ? 'Одобрена заявка за отписване' : 'Отказана заявка за отписване';
-        $studentBody = "Вашата заявка за отписване беше "
-            . ($action === 'approve_unenrollment' ? 'одобрена' : 'отказана')
-            . ".\n\nЛокация: {$pendingRequest['location']}\nЧас: " . date('d.m.Y H:i');
-        $notifier->send($pendingRequest['email'], $studentSubject, $studentBody, $action === 'approve_unenrollment' ? 'approve_user' : 'reject_user');
-
-        sendAdminNotification(
-            $notifier,
-            $action === 'approve_unenrollment' ? 'Одобрено отписване' : 'Отказано отписване',
-            "Администраторът {$adminUser['full_name']} обработи заявка.\n\nСтудент: {$pendingRequest['full_name']}\nИмейл: {$pendingRequest['email']}",
-            $action === 'approve_unenrollment' ? 'approve_admin' : 'reject_admin'
-        );
-
-        jsonResponse(['message' => $action === 'approve_unenrollment' ? 'Отписването е одобрено.' : 'Отписването е отказано.']);
     }
 
     if ($action === 'create_calendar_event' || $action === 'update_calendar_event') {
@@ -639,29 +578,53 @@ if ($requestMethod === 'GET' && $action === 'get_week_records') {
 
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
-    jsonResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
+    jsonResponse(
+        normalizeDateTimeFields(
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+            ['timestamp']
+        )
+    );
 }
 
 if ($requestMethod === 'GET' && $action === 'get_my_history') {
     $userId = authenticate();
     $stmt = $db->prepare(
-        "SELECT status, location, signature, approval_status, approved_at, timestamp
-         FROM student_status
+        "SELECT ss.status,
+                ss.location,
+                ss.signature,
+                ss.review_signature,
+                ss.approval_status,
+                ss.approved_at,
+                ss.timestamp,
+                reviewer.full_name AS approved_by_name,
+                reviewer.role AS approved_by_role
+         FROM student_status ss
+         LEFT JOIN users reviewer ON reviewer.id = ss.approved_by
          WHERE student_id = :id
          ORDER BY timestamp DESC
          LIMIT 10"
     );
     $stmt->execute([':id' => $userId]);
-    jsonResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
+    jsonResponse(
+        normalizeDateTimeFields(
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+            ['approved_at', 'timestamp']
+        )
+    );
 }
 
 if ($requestMethod === 'GET' && $action === 'get_pending_requests') {
     $userId = authenticate();
     $currentUser = requireStaffAccess($user, (int) $userId);
     if ($currentUser['role'] === 'counselor') {
-        jsonResponse($user->getPendingRequests($currentUser['dormitory'] ?: null));
+        jsonResponse(
+            normalizeDateTimeFields(
+                $user->getPendingRequests($currentUser['dormitory'] ?: null),
+                ['timestamp']
+            )
+        );
     }
-    jsonResponse($user->getAllPendingRequests());
+    jsonResponse(normalizeDateTimeFields($user->getAllPendingRequests(), ['timestamp']));
 }
 
 if ($requestMethod === 'GET' && $action === 'get_calendar_data') {
@@ -693,7 +656,7 @@ if ($requestMethod === 'GET' && $action === 'get_calendar_data') {
 if ($requestMethod === 'GET' && $action === 'get_recent_notifications') {
     $userId = authenticate();
     requireAdminAccess($user, (int) $userId);
-    jsonResponse($user->getRecentNotificationLogs());
+    jsonResponse(normalizeDateTimeFields($user->getRecentNotificationLogs(), ['created_at']));
 }
 
 if ($requestMethod === 'GET' && $action === 'get_users') {

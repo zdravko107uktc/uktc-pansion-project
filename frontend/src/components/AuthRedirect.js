@@ -1,6 +1,6 @@
 import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_BASE } from "../api/auth";
+import { getCurrentUser } from "../api/auth";
 
 const AuthRedirect = () => {
   const navigate = useNavigate();
@@ -14,22 +14,22 @@ const AuthRedirect = () => {
       }
 
       try {
-        const response = await fetch(`${API_BASE}/user`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-        });
-        const data = await response.json();
-        const role = data?.user?.role;
-
-        if (role === "admin" || role === "counselor") {
-          navigate("/admin");
-        } else if (role === "student") {
+        const currentUser = await getCurrentUser(token);
+        if (currentUser?.role === "student") {
           navigate("/home");
-        } else {
-          navigate("/login");
+          return;
+        }
+
+        if (currentUser?.role === "admin" || currentUser?.role === "counselor") {
+          navigate("/admin");
+          return;
         }
       } catch {
-        navigate("/login");
+        // fall through to login redirect below
       }
+
+      localStorage.removeItem("token");
+      navigate("/login");
     };
 
     checkAuth();

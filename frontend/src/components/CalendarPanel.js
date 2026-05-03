@@ -103,14 +103,19 @@ const CalendarPanel = ({
     const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
     const lastDay = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
     const mondayIndex = (firstDay.getDay() + 6) % 7;
-    const totalDays = lastDay.getDate();
     const cells = [];
 
-    for (let i = 0; i < mondayIndex; i += 1) cells.push(null);
-    for (let day = 1; day <= totalDays; day += 1) {
+    for (let index = 0; index < mondayIndex; index += 1) {
+      cells.push(null);
+    }
+
+    for (let day = 1; day <= lastDay.getDate(); day += 1) {
       cells.push(new Date(monthDate.getFullYear(), monthDate.getMonth(), day));
     }
-    while (cells.length % 7 !== 0) cells.push(null);
+
+    while (cells.length % 7 !== 0) {
+      cells.push(null);
+    }
 
     return cells;
   }, [monthDate]);
@@ -204,18 +209,9 @@ const CalendarPanel = ({
 
                 {summaryEntry && (
                   <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="rounded-xl bg-white/80 px-2 py-2">
-                      <div className="font-semibold text-slate-700">{summaryEntry.enrolled_count}</div>
-                      <div className="text-slate-400">Записани</div>
-                    </div>
-                    <div className="rounded-xl bg-white/80 px-2 py-2">
-                      <div className="font-semibold text-slate-700">{summaryEntry.unenrolled_count}</div>
-                      <div className="text-slate-400">Отписани</div>
-                    </div>
-                    <div className="rounded-xl bg-white/80 px-2 py-2">
-                      <div className="font-semibold text-slate-700">{summaryEntry.pending_count}</div>
-                      <div className="text-slate-400">Чакащи</div>
-                    </div>
+                    <SummaryMiniCard label="Записани" value={summaryEntry.enrolled_count} />
+                    <SummaryMiniCard label="Отписани" value={summaryEntry.unenrolled_count} />
+                    <SummaryMiniCard label="Чакащи" value={summaryEntry.pending_count} />
                   </div>
                 )}
 
@@ -361,6 +357,13 @@ const CalendarPanel = ({
   );
 };
 
+const SummaryMiniCard = ({ label, value }) => (
+  <div className="rounded-xl bg-white/80 px-2 py-2">
+    <div className="font-semibold text-slate-700">{value}</div>
+    <div className="text-slate-400">{label}</div>
+  </div>
+);
+
 const CalendarEventForm = ({ mode, event, onSubmit, onCancel, createState }) => {
   const [form, setForm] = useState({
     title: "",
@@ -402,33 +405,34 @@ const CalendarEventForm = ({ mode, event, onSubmit, onCancel, createState }) => 
           </button>
         )}
       </div>
+
       <form onSubmit={handleSubmit} className="grid gap-3 md:grid-cols-2">
         <input
           type="text"
           placeholder="Заглавие на събитието"
           value={form.title}
-          onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+          onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
           className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 focus:border-[#791c1c] text-sm"
           required
         />
         <input
           type="date"
           value={form.eventDate}
-          onChange={(e) => setForm((prev) => ({ ...prev, eventDate: e.target.value }))}
+          onChange={(event) => setForm((prev) => ({ ...prev, eventDate: event.target.value }))}
           className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 focus:border-[#791c1c] text-sm"
           required
         />
         <input
           type="date"
           value={form.endDate}
-          onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))}
+          onChange={(event) => setForm((prev) => ({ ...prev, endDate: event.target.value }))}
           className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 focus:border-[#791c1c] text-sm"
         />
         <input
           type="text"
           placeholder="Кратко описание"
           value={form.description}
-          onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+          onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
           className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 focus:border-[#791c1c] text-sm"
         />
         <button

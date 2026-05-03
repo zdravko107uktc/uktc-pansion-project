@@ -1,4 +1,7 @@
 const API_BASE = (process.env.REACT_APP_API_URL || "/api").replace(/\/+$/, "");
+export const SYSTEM_ADMIN_EMAIL = (process.env.REACT_APP_SYSTEM_ADMIN_EMAIL || "zdravko.h.anev@gmail.com")
+  .trim()
+  .toLowerCase();
 
 export { API_BASE };
 
@@ -82,23 +85,45 @@ export const getUserInfo = async (token) =>
     { throwOnError: false }
   );
 
+export const getCurrentUser = async (token) => {
+  const data = await getUserInfo(token);
+  return data?.user || null;
+};
+
+export const getMyHistory = async (token) =>
+  requestJson(`${API_BASE}/auth?action=get_my_history`, {
+    headers: authHeaders(token, { Accept: "application/json" }),
+  });
+
+export const updateStatus = async (token, payload) =>
+  requestJson(`${API_BASE}/auth?action=update_status`, {
+    method: "POST",
+    headers: jsonHeaders(token),
+    body: JSON.stringify(payload),
+  });
+
 export const getPendingRequests = async (token) =>
   requestJson(`${API_BASE}/auth?action=get_pending_requests`, {
     headers: authHeaders(token, { Accept: "application/json" }),
   });
 
-export const approveUnenrollment = async (token, statusId) =>
+export const getWeekRecords = async (token) =>
+  requestJson(`${API_BASE}/auth?action=get_week_records`, {
+    headers: authHeaders(token, { Accept: "application/json" }),
+  });
+
+export const approveUnenrollment = async (token, statusId, reviewSignature) =>
   requestJson(`${API_BASE}/auth?action=approve_unenrollment`, {
     method: "POST",
     headers: jsonHeaders(token),
-    body: JSON.stringify({ statusId }),
+    body: JSON.stringify({ statusId, reviewSignature }),
   });
 
-export const rejectUnenrollment = async (token, statusId) =>
+export const rejectUnenrollment = async (token, statusId, reviewSignature) =>
   requestJson(`${API_BASE}/auth?action=reject_unenrollment`, {
     method: "POST",
     headers: jsonHeaders(token),
-    body: JSON.stringify({ statusId }),
+    body: JSON.stringify({ statusId, reviewSignature }),
   });
 
 export const getCalendarData = async (token, month) =>

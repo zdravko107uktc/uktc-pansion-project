@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/ApiException.php';
+require_once __DIR__ . '/AppClock.php';
 require_once __DIR__ . '/EmailNotifier.php';
 require_once __DIR__ . '/../models/User.php';
 
@@ -70,8 +71,8 @@ class PasswordResetService
         $user = $this->userModel->getUserById((int) $tokenRecord['user_id']);
         if ($user) {
             $body = "Здравейте, {$user['full_name']},\n\n"
-                . 'Паролата ви за UKTC TESSIS беше сменена успешно на ' . date('d.m.Y H:i') . ".\n\n"
-                . 'Ако това не сте били вие, свържете се с администратор веднага.';
+                . 'Паролата ви за UKTC TESSIS беше сменена успешно на ' . AppClock::formatBg() . ".\n\n"
+                . 'Ако това не сте били вие, свържете се с администратора веднага.';
             $this->notifier->send($user['email'], 'Паролата ви беше сменена', $body, 'password_reset_success');
         }
 

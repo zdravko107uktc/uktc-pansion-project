@@ -1,9 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FaMapMarkerAlt, FaCheckCircle, FaTimesCircle, FaClock, FaPenNib } from "react-icons/fa";
-import { API_BASE, getCalendarData } from "../api/auth";
+import {
+  getCalendarData,
+  getCurrentUser,
+  getMyHistory,
+  updateStatus,
+} from "../api/auth";
 import SignaturePad from "./SignaturePad";
 import CalendarPanel from "./CalendarPanel";
+import { formatDateTimeBg } from "../utils/dateTime";
 import {
   deriveEffectiveStatus,
   getLatestReviewOutcome,
@@ -26,8 +32,95 @@ const locationSuggestions = [
   "Практика / стаж",
 ];
 
+const statusConfig = {
+  enrolled: {
+    label: "Записан",
+    icon: <FaCheckCircle />,
+    bg: "bg-green-50",
+    border: "border-green-200",
+    text: "text-green-700",
+    iconBg: "bg-green-100 text-green-500",
+  },
+  unenrolled: {
+    label: "Отписан",
+    icon: <FaTimesCircle />,
+    bg: "bg-slate-100",
+    border: "border-slate-200",
+    text: "text-slate-600",
+    iconBg: "bg-slate-200 text-slate-400",
+  },
+  null: {
+    label: "Няма данни",
+    icon: <FaClock />,
+    bg: "bg-white",
+    border: "border-slate-200",
+    text: "text-slate-400",
+    iconBg: "bg-slate-100 text-slate-300",
+  },
+};
+
+const HistoryItem = ({ entry }) => {
+  const statusLabel =
+    entry.approval_status === "pending"
+      ? "Отписване в изчакване"
+      : entry.status === "enrolled"
+      ? "Записан"
+      : entry.approval_status === "rejected"
+      ? "Отказано отписване"
+      : "Отписан";
+
+  const statusClass =
+    entry.approval_status === "pending"
+      ? "bg-amber-100 text-amber-700"
+      : entry.status === "enrolled"
+      ? "bg-green-100 text-green-600"
+      : entry.approval_status === "rejected"
+      ? "bg-red-100 text-red-600"
+      : "bg-slate-100 text-slate-500";
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between py-3 border-b border-slate-50 last:border-0">
+      <div className="flex items-start gap-3 min-w-0">
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${statusClass}`}>
+          {entry.approval_status === "pending" ? "..." : entry.status === "enrolled" ? "OK" : "X"}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-slate-700">{statusLabel}</p>
+          {entry.location && (
+            <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 break-words">
+              <FaMapMarkerAlt size={9} /> {entry.location}
+            </p>
+          )}
+          {entry.signature && (
+            <div className="mt-0.5 flex items-center gap-1">
+              <FaPenNib size={9} className="text-gray-400 flex-shrink-0" />
+              {entry.signature.startsWith("data:") ? (
+                <img src={entry.signature} alt="подпис" className="h-6 max-w-28 object-contain rounded" />
+              ) : (
+                <span className="text-xs text-gray-400 italic break-words">{entry.signature}</span>
+              )}
+            </div>
+          )}
+          {entry.review_signature && (
+            <div className="mt-1 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1.5">
+              <p className="text-[11px] font-medium text-slate-500 mb-1">
+                Подпис на {entry.approved_by_role === "admin" ? "администратор" : "възпитател"}
+                {entry.approved_by_name ? `: ${entry.approved_by_name}` : ""}
+              </p>
+              <img src={entry.review_signature} alt="подпис на служител" className="h-8 max-w-32 object-contain rounded" />
+            </div>
+          )}
+        </div>
+      </div>
+      <span className="text-xs text-gray-400 sm:flex-shrink-0 pl-11 sm:pl-0">
+        {formatDateTimeBg(entry.timestamp)}
+      </span>
+    </div>
+  );
+};
+
 const Home = () => {
-  const [fullName, setFullName] = useState("");
+  const [user, setUser] = useState(null);
   const [status, setStatus] = useState("");
   const [location, setLocation] = useState("");
   const [signature, setSignature] = useState(null);
@@ -41,43 +134,34 @@ const Home = () => {
   const currentStatus = useMemo(() => deriveEffectiveStatus(history), [history]);
   const hasPendingRequest = useMemo(() => hasPendingUnenrollmentRequest(history), [history]);
   const latestReview = useMemo(() => getLatestReviewOutcome(history), [history]);
+  const currentConfig = statusConfig[currentStatus] ?? statusConfig.null;
 
-  const fetchHistoryAndUser = useCallback(
-    async (token) => {
-      const [userRes, historyRes] = await Promise.all([
-        fetch(`${API_BASE}/user`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-        }),
-        fetch(`${API_BASE}/auth?action=get_my_history`, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-        }),
-      ]);
+  const loadUserAndHistory = useCallback(async (token) => {
+    const [currentUser, currentHistory] = await Promise.all([
+      getCurrentUser(token),
+      getMyHistory(token),
+    ]);
 
-      const userData = await userRes.json();
-      const historyData = await historyRes.json();
+    if (!currentUser) {
+      throw new Error("Missing user");
+    }
 
-      if (!userRes.ok || !userData.user) {
-        throw new Error("Missing user");
-      }
+    if (currentUser.role !== "student") {
+      navigate("/admin");
+      return;
+    }
 
-      if (userData.user.role === "admin") {
-        navigate("/admin");
-        return;
-      }
+    setUser(currentUser);
+    setHistory(Array.isArray(currentHistory) ? currentHistory : []);
+  }, [navigate]);
 
-      setFullName(userData.user.full_name);
-      setHistory(Array.isArray(historyData) ? historyData : []);
-    },
-    [navigate]
-  );
-
-  const fetchCalendar = useCallback(async (token, month) => {
+  const loadCalendar = async (token, month) => {
     const data = await getCalendarData(token, month);
     setCalendarData({
       attendance: Array.isArray(data.attendance) ? data.attendance : [],
       events: Array.isArray(data.events) ? data.events : [],
     });
-  }, []);
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -86,23 +170,18 @@ const Home = () => {
       return;
     }
 
-    const load = async () => {
-      try {
-        await fetchHistoryAndUser(token);
-      } catch {
-        localStorage.removeItem("token");
-        navigate("/login");
-      }
-    };
-
-    load();
-  }, [fetchHistoryAndUser, navigate]);
+    loadUserAndHistory(token).catch(() => {
+      localStorage.removeItem("token");
+      navigate("/login");
+    });
+  }, [loadUserAndHistory, navigate]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) return;
-    fetchCalendar(token, calendarMonth).catch(() => {});
-  }, [calendarMonth, fetchCalendar]);
+
+    loadCalendar(token, calendarMonth).catch(() => {});
+  }, [calendarMonth]);
 
   const handleSubmit = async () => {
     if (!status) {
@@ -116,35 +195,33 @@ const Home = () => {
       return;
     }
 
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
     setSubmitting(true);
     setMessage({ text: "", type: "" });
-    const token = localStorage.getItem("token");
 
     try {
-      const body = { status };
+      const payload = { status };
       if (status === "unenrolled") {
-        body.location = finalLocation;
-        if (signature) body.signature = signature;
+        payload.location = finalLocation;
+        if (signature) {
+          payload.signature = signature;
+        }
       }
 
-      const response = await fetch(`${API_BASE}/auth?action=update_status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body),
-      });
+      const result = await updateStatus(token, payload);
+      setMessage({ text: result.message || "Статусът е актуализиран.", type: "success" });
 
-      const result = await response.json();
-      setMessage({ text: result.message, type: response.ok ? "success" : "error" });
-
-      if (response.ok) {
-        await fetchHistoryAndUser(token);
-        setStatus("");
-        setLocation("");
-        setSignature(null);
-        await fetchCalendar(token, calendarMonth);
-      }
-    } catch {
-      setMessage({ text: "Грешка при изпращане.", type: "error" });
+      await Promise.all([loadUserAndHistory(token), loadCalendar(token, calendarMonth)]);
+      setStatus("");
+      setLocation("");
+      setSignature(null);
+    } catch (error) {
+      setMessage({ text: error?.data?.message || error?.message || "Грешка при изпращане.", type: "error" });
     } finally {
       setSubmitting(false);
     }
@@ -152,44 +229,16 @@ const Home = () => {
 
   const selectedLocation = location.trim();
   const canSubmit =
-    status &&
+    Boolean(status) &&
     !hasPendingRequest &&
     status !== currentStatus &&
     !(status === "unenrolled" && !selectedLocation);
-
-  const statusConfig = {
-    enrolled: {
-      label: "Записан",
-      icon: <FaCheckCircle />,
-      bg: "bg-green-50",
-      border: "border-green-200",
-      text: "text-green-700",
-      iconBg: "bg-green-100 text-green-500",
-    },
-    unenrolled: {
-      label: "Отписан",
-      icon: <FaTimesCircle />,
-      bg: "bg-slate-100",
-      border: "border-slate-200",
-      text: "text-slate-600",
-      iconBg: "bg-slate-200 text-slate-400",
-    },
-    null: {
-      label: "Няма данни",
-      icon: <FaClock />,
-      bg: "bg-white",
-      border: "border-slate-200",
-      text: "text-slate-400",
-      iconBg: "bg-slate-100 text-slate-300",
-    },
-  };
-  const currentConfig = statusConfig[currentStatus] ?? statusConfig.null;
 
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-5">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 break-words">Здравей, {fullName || "..."}</h1>
+          <h1 className="text-xl font-bold text-gray-900 break-words">Здравей, {user?.full_name || "..."}</h1>
           <p className="text-gray-400 text-sm">Актуализирай своето присъствие и следи календара</p>
         </div>
 
@@ -203,14 +252,7 @@ const Home = () => {
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-0.5">Текущ статус</p>
                 <p className={`text-lg sm:text-xl font-bold ${currentConfig.text}`}>{currentConfig.label}</p>
                 {history[0]?.timestamp && (
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {new Date(history[0].timestamp).toLocaleString("bg-BG", {
-                      day: "numeric",
-                      month: "long",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">{formatDateTimeBg(history[0].timestamp, { month: "long" })}</p>
                 )}
               </div>
             </div>
@@ -235,18 +277,18 @@ const Home = () => {
                   {
                     value: "enrolled",
                     label: "Запиши се",
-                    icon: "✓",
+                    hint: "Присъствам",
                     activeStyle: "border-green-500 bg-green-50 text-green-700",
                     disabledStyle: "border-slate-100 bg-slate-50 text-slate-300",
                   },
                   {
                     value: "unenrolled",
                     label: "Отпиши се",
-                    icon: "✕",
+                    hint: "Не присъствам",
                     activeStyle: "border-red-400 bg-red-50 text-red-700",
                     disabledStyle: "border-slate-100 bg-slate-50 text-slate-300",
                   },
-                ].map(({ value, label, icon, activeStyle, disabledStyle }) => {
+                ].map(({ value, label, hint, activeStyle, disabledStyle }) => {
                   const isCurrent = currentStatus === value;
                   const isPendingChoice = hasPendingRequest && value === "unenrolled";
                   const isSelected = status === value;
@@ -270,10 +312,10 @@ const Home = () => {
                           : "border-slate-200 text-gray-600 hover:border-slate-300 hover:bg-slate-50"
                       }`}
                     >
-                      <div className="text-2xl mb-1.5">{icon}</div>
-                      <div>{label}</div>
-                      {isCurrent && <div className="text-xs mt-0.5 opacity-60">Текущ</div>}
-                      {isPendingChoice && <div className="text-xs mt-0.5 opacity-60">Чака одобрение</div>}
+                      <div className="text-base font-semibold">{label}</div>
+                      <div className="text-xs opacity-70 mt-1">{hint}</div>
+                      {isCurrent && <div className="text-xs mt-1 opacity-60">Текущ избор</div>}
+                      {isPendingChoice && <div className="text-xs mt-1 opacity-60">Чака одобрение</div>}
                     </button>
                   );
                 })}
@@ -295,15 +337,14 @@ const Home = () => {
                     />
                     <datalist id="unenrollment-location-suggestions">
                       {locationSuggestions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
+                        <option key={option} value={option} />
                       ))}
                     </datalist>
                     <p className="mt-2 text-xs text-slate-400">
                       Можете да въведете точен адрес, град или друго уточнение за местоположението.
                     </p>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-600 mb-1.5 flex items-center gap-1.5">
                       <FaPenNib size={11} className="text-slate-400" />
@@ -324,7 +365,7 @@ const Home = () => {
                       : "bg-red-50 border-red-100 text-red-600"
                   }`}
                 >
-                  {message.type === "success" ? "✓" : "⚠"} {message.text}
+                  {message.type === "success" ? "OK" : "!"} {message.text}
                 </div>
               )}
 
@@ -352,70 +393,7 @@ const Home = () => {
             <h2 className="text-base font-semibold text-gray-900 mb-4">Последна активност</h2>
             <div className="space-y-2">
               {history.map((entry, index) => (
-                <div
-                  key={`${entry.timestamp}-${index}`}
-                  className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between py-3 border-b border-slate-50 last:border-0"
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${
-                        entry.approval_status === "pending"
-                          ? "bg-amber-100 text-amber-700"
-                          : entry.status === "enrolled"
-                          ? "bg-green-100 text-green-600"
-                          : entry.status === "unenrolled" && entry.approval_status === "rejected"
-                          ? "bg-red-100 text-red-600"
-                          : "bg-slate-100 text-slate-500"
-                      }`}
-                    >
-                      {entry.approval_status === "pending" ? "…" : entry.status === "enrolled" ? "✓" : "✕"}
-                    </div>
-                    <div className="min-w-0">
-                      <p
-                        className={`text-sm font-medium ${
-                          entry.approval_status === "pending"
-                            ? "text-amber-700"
-                            : entry.status === "enrolled"
-                            ? "text-green-700"
-                            : entry.status === "unenrolled" && entry.approval_status === "rejected"
-                            ? "text-red-600"
-                            : "text-slate-600"
-                        }`}
-                      >
-                        {entry.approval_status === "pending"
-                          ? "Отписване в изчакване"
-                          : entry.status === "enrolled"
-                          ? "Записан"
-                          : entry.approval_status === "rejected"
-                          ? "Отказано отписване"
-                          : "Отписан"}
-                      </p>
-                      {entry.location && (
-                        <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 break-words">
-                          <FaMapMarkerAlt size={9} /> {entry.location}
-                        </p>
-                      )}
-                      {entry.signature && (
-                        <div className="mt-0.5 flex items-center gap-1">
-                          <FaPenNib size={9} className="text-gray-400 flex-shrink-0" />
-                          {entry.signature.startsWith("data:") ? (
-                            <img src={entry.signature} alt="подпис" className="h-6 max-w-28 object-contain rounded" />
-                          ) : (
-                            <span className="text-xs text-gray-400 italic break-words">{entry.signature}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <span className="text-xs text-gray-400 sm:flex-shrink-0 pl-11 sm:pl-0">
-                    {new Date(entry.timestamp).toLocaleString("bg-BG", {
-                      day: "numeric",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
+                <HistoryItem key={`${entry.timestamp}-${index}`} entry={entry} />
               ))}
             </div>
           </div>

@@ -256,7 +256,7 @@ class User
 
     public function getPendingRequests(?string $dormitory = null): array
     {
-        $sql = "SELECT ss.id, ss.student_id, ss.location, ss.signature, ss.timestamp,
+        $sql = "SELECT ss.id, ss.student_id, ss.location, ss.signature, ss.review_signature, ss.timestamp,
                        u.full_name, u.email, u.dormitory AS student_dormitory
                 FROM student_status ss
                 JOIN {$this->table} u ON u.id = ss.student_id
@@ -279,7 +279,7 @@ class User
     public function getPendingRequestById(int $statusId): ?array
     {
         $stmt = $this->conn->prepare(
-            "SELECT ss.id, ss.student_id, ss.location, ss.signature, ss.timestamp, ss.approval_status,
+            "SELECT ss.id, ss.student_id, ss.location, ss.signature, ss.review_signature, ss.timestamp, ss.approval_status,
                     u.full_name, u.email, u.dormitory AS student_dormitory
              FROM student_status ss
              JOIN {$this->table} u ON u.id = ss.student_id
@@ -292,32 +292,40 @@ class User
         return $result ?: null;
     }
 
-    public function approveUnenrollment(int $statusId, int $adminId): bool
+    public function approveUnenrollment(int $statusId, int $adminId, ?string $reviewSignature = null): bool
     {
         $stmt = $this->conn->prepare(
             "UPDATE student_status
-             SET approval_status = 'approved', approved_by = :admin_id, approved_at = NOW()
+             SET approval_status = 'approved',
+                 approved_by = :admin_id,
+                 approved_at = NOW(),
+                 review_signature = :review_signature
              WHERE id = :id AND approval_status = 'pending'"
         );
 
         $stmt->execute([
             ':admin_id' => $adminId,
+            ':review_signature' => $reviewSignature,
             ':id' => $statusId,
         ]);
 
         return $stmt->rowCount() > 0;
     }
 
-    public function rejectUnenrollment(int $statusId, int $adminId): bool
+    public function rejectUnenrollment(int $statusId, int $adminId, ?string $reviewSignature = null): bool
     {
         $stmt = $this->conn->prepare(
             "UPDATE student_status
-             SET approval_status = 'rejected', approved_by = :admin_id, approved_at = NOW()
+             SET approval_status = 'rejected',
+                 approved_by = :admin_id,
+                 approved_at = NOW(),
+                 review_signature = :review_signature
              WHERE id = :id AND approval_status = 'pending'"
         );
 
         $stmt->execute([
             ':admin_id' => $adminId,
+            ':review_signature' => $reviewSignature,
             ':id' => $statusId,
         ]);
 
@@ -327,6 +335,29 @@ class User
     public function getAllPendingRequests(): array
     {
         return $this->getPendingRequests();
+    }
+
+    public function getStaffEmailsForDormitory(?string $dormitory): array
+    {
+        $params = [];
+        $sql = "SELECT DISTINCT email
+                FROM {$this->table}
+                WHERE role = 'admin'";
+
+        if ($dormitory !== null && $dormitory !== '') {
+            $sql .= " OR (role = 'counselor' AND dormitory = :dormitory)";
+            $params[':dormitory'] = $dormitory;
+        } else {
+            $sql .= " OR role = 'counselor'";
+        }
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->execute($params);
+
+        return array_values(array_unique(array_filter(array_map(
+            static fn (array $row): string => trim((string) ($row['email'] ?? '')),
+            $stmt->fetchAll(PDO::FETCH_ASSOC)
+        ))));
     }
 
     public function getCalendarEvents(string $startDate, string $endDate): array

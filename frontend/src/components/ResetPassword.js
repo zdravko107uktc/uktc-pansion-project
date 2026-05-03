@@ -1,20 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword } from "../api/auth";
+import { passwordPolicyChecks, validatePassword } from "../utils/passwordPolicy";
 
 const getPasswordErrors = (password, confirmPassword) => {
   const errors = {};
 
-  if (!password) {
-    errors.password = "Полето е задължително.";
-  } else if (password.length < 8) {
-    errors.password = "Паролата трябва да е поне 8 символа.";
-  } else if (!/[A-Z]/.test(password)) {
-    errors.password = "Добавете поне една главна буква.";
-  } else if (!/[a-z]/.test(password)) {
-    errors.password = "Добавете поне една малка буква.";
-  } else if (!/[0-9]/.test(password)) {
-    errors.password = "Добавете поне една цифра.";
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    errors.password = passwordError;
   }
 
   if (!confirmPassword) {
@@ -37,6 +31,7 @@ const ResetPassword = () => {
   const [loading, setLoading] = useState(false);
 
   const errors = useMemo(() => getPasswordErrors(password, confirmPassword), [password, confirmPassword]);
+  const passwordRequirements = useMemo(() => passwordPolicyChecks(password), [password]);
   const fieldError = (field) => touched[field] && errors[field];
 
   const handleSubmit = async (event) => {
@@ -97,6 +92,15 @@ const ResetPassword = () => {
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[#791c1c]/30 focus:border-[#791c1c] transition"
               />
               {fieldError("password") && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
+              {(touched.password || password) && (
+                <ul className="mt-2 space-y-0.5">
+                  {passwordRequirements.map(({ key, label, ok }) => (
+                    <li key={key} className={`text-xs ${ok ? "text-green-600" : "text-slate-400"}`}>
+                      {ok ? "• " : "○ "} {label}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div>

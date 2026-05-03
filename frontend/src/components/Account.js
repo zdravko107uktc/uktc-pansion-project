@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { getUserInfo } from "../api/auth";
 import { useNavigate } from "react-router-dom";
 import { FaEnvelope, FaCalendarAlt, FaShieldAlt, FaUserGraduate } from "react-icons/fa";
+import { getCurrentUser } from "../api/auth";
 
 const Account = () => {
   const [user, setUser] = useState(null);
@@ -14,15 +14,21 @@ const Account = () => {
       return;
     }
 
-    getUserInfo(token).then((data) => {
-      if (data.user) {
-        setUser(data.user);
-      } else {
+    getCurrentUser(token)
+      .then((currentUser) => {
+        if (currentUser) {
+          setUser(currentUser);
+          return;
+        }
+
         localStorage.removeItem("token");
         navigate("/login");
-      }
-    });
-  }, [token, navigate]);
+      })
+      .catch(() => {
+        localStorage.removeItem("token");
+        navigate("/login");
+      });
+  }, [navigate, token]);
 
   if (!user) {
     return (
