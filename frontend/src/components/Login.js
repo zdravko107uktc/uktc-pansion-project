@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { FaEye, FaEyeSlash, FaExclamationTriangle } from "react-icons/fa";
-import { getCurrentUser, login } from "../api/auth";
+import { login } from "../api/auth";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -24,15 +24,7 @@ const Login = () => {
       }
 
       localStorage.setItem("token", data.token);
-      const currentUser = await getCurrentUser(data.token);
-
-      if (!currentUser) {
-        localStorage.removeItem("token");
-        setError("Неуспешно зареждане на профила.");
-        return;
-      }
-
-      navigate(currentUser.role === "student" ? "/home" : "/admin");
+      navigate("/");
     } catch {
       setError("Грешка при свързване със сървъра.");
     } finally {
