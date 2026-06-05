@@ -5,7 +5,7 @@
 Dormitory (pansion) enrollment management system for a school: students check in/out, staff
 (counselors and admins) review unenrollment requests with digital signatures, everyone shares a
 calendar, and every action is mirrored to email and an audit log.
-
+ 
 - **Frontend:** React (Vercel)
 - **Backend:** Java 21 + Spring Boot 3.3 (Railway)
 - **Database:** MySQL 8
