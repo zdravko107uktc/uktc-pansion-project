@@ -1,5 +1,7 @@
 # UKTC Pansion
 
+**Made by:** Zdravko Anev — 22314 · Dimitur Georgiev — 22314
+
 Dormitory (pansion) enrollment management system for a school: students check in/out, staff
 (counselors and admins) review unenrollment requests with digital signatures, everyone shares a
 calendar, and every action is mirrored to email and an audit log.
@@ -80,6 +82,45 @@ docker compose up --build
 - Schema is created/migrated automatically by **Flyway** (`backend/src/main/resources/db/migration`).
 
 The first account registered with the `SYSTEM_ADMIN_EMAIL` becomes the admin.
+
+## Docker Hub images
+
+The two images we build (`backend` and `frontend`) are published publicly on Docker Hub:
+
+- **Backend:** https://hub.docker.com/r/zdravko107/uktc-pansion-backend
+- **Frontend:** https://hub.docker.com/r/zdravko107/uktc-pansion-frontend
+
+### Build and push the images
+
+```bash
+docker login
+
+# Build both images using the tags declared in compose.yml
+docker compose build
+
+# Push both to Docker Hub
+docker compose push
+```
+
+Or build/push each image manually:
+
+```bash
+docker build -t zdravko107/uktc-pansion-backend:latest ./backend
+docker build -t zdravko107/uktc-pansion-frontend:latest ./frontend
+
+docker push zdravko107/uktc-pansion-backend:latest
+docker push zdravko107/uktc-pansion-frontend:latest
+```
+
+### Run straight from the published images
+
+Because `compose.yml` declares an `image:` for each service, anyone can pull and run
+without building locally:
+
+```bash
+docker compose pull
+docker compose up
+```
 
 ## Run the backend directly
 

@@ -21,6 +21,7 @@ services:
       - "8025:8025"
 
   backend:
+    image: zdravko107/uktc-pansion-backend:latest
     build: ./backend
     restart: unless-stopped
     environment:
@@ -51,6 +52,7 @@ services:
         condition: service_started
 
   frontend:
+    image: zdravko107/uktc-pansion-frontend:latest
     build: ./frontend
     restart: unless-stopped
     ports:
