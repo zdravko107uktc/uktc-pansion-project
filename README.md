@@ -1,6 +1,6 @@
 # UKTC Pansion
 
-**Made by:** Zdravko Anev — 22314 · Dimitur Georgiev — 22314
+**Made by:** Zdravko Anev — 22314 · Dimitur Georgiev — 22313
 
 Dormitory (pansion) enrollment management system for a school: students check in/out, staff
 (counselors and admins) review unenrollment requests with digital signatures, everyone shares a
