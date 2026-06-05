@@ -6,7 +6,7 @@ services:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: checkin_checkout
     volumes:
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Schema is owned by Flyway in the backend; the DB starts empty.
       - db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
@@ -25,22 +25,25 @@ services:
     restart: unless-stopped
     environment:
       DB_HOST: db
+      DB_PORT: 3306
       DB_NAME: checkin_checkout
       DB_USER: root
       DB_PASSWORD: rootpassword
       JWT_SECRET: change_this_to_a_secure_random_secret_in_production
+      SYSTEM_ADMIN_EMAIL: ${SYSTEM_ADMIN_EMAIL:-zdravko.h.anev@gmail.com}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       MAIL_FROM: ${MAIL_FROM:-school.inventory.bot@gmail.com}
-      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-school-inventory-management-system}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-UKTC Pansion}
       MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-mailpit}
       MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-1025}
-      MAIL_SMTP_ENCRYPTION: ${MAIL_SMTP_ENCRYPTION:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-false}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-false}
       MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
       MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
-      MAIL_SMTP_TIMEOUT: ${MAIL_SMTP_TIMEOUT:-10}
-      MAIL_EHLO_DOMAIN: ${MAIL_EHLO_DOMAIN:-localhost}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
       PASSWORD_RESET_TOKEN_MINUTES: ${PASSWORD_RESET_TOKEN_MINUTES:-30}
-      MAIL_FORCE_LOG_ONLY: ${MAIL_FORCE_LOG_ONLY:-0}
+      MAIL_FORCE_LOG_ONLY: ${MAIL_FORCE_LOG_ONLY:-false}
+      SECURITY_REQUIRE_EMAIL_VERIFICATION: ${SECURITY_REQUIRE_EMAIL_VERIFICATION:-false}
     depends_on:
       db:
         condition: service_healthy

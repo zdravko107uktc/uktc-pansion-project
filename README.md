@@ -1,80 +1,105 @@
-# UKTC-TESSIS
+# UKTC Pansion
 
-Deployment target:
-- frontend on Vercel
-- backend on Railway
-- MySQL on Railway
+Dormitory (pansion) enrollment management system for a school: students check in/out, staff
+(counselors and admins) review unenrollment requests with digital signatures, everyone shares a
+calendar, and every action is mirrored to email and an audit log.
+
+- **Frontend:** React (Vercel)
+- **Backend:** Java 21 + Spring Boot 3.3 (Railway)
+- **Database:** MySQL 8
+
+> The backend was migrated from a PHP monolith to a layered Spring Boot application. The HTTP API is
+> now a clean REST API under `/api/v1`.
 
 ## Architecture
 
-- The React app is built from [frontend](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/frontend).
-- The PHP API is served from [backend](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/backend).
-- The backend now supports:
-  - Railway MySQL variables like `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, `MYSQLPASSWORD`
-  - optional `DATABASE_URL`
-  - configurable CORS via `CORS_ALLOWED_ORIGINS`
-  - healthcheck at `/health`
-  - configurable system admin email via `SYSTEM_ADMIN_EMAIL`
+The backend (`backend/`) is organised in clean layers with one responsibility each:
 
-## Vercel
+```
+web (controllers, DTOs, mappers)      HTTP only – no business logic
+   -> service (interfaces + impl)     use-cases, transactions, validation
+        -> repository (Spring Data)   persistence
+             -> domain (entities)     JPA model + enums
+notification (events + dispatcher + mail transport)   cross-cutting, async
+security (JWT filter, provider, config)               authentication/authorization
+config (typed @ConfigurationProperties)               configuration
+```
 
-Create a Vercel project with root directory `frontend`.
+### SOLID & design patterns
 
-Set environment variables:
-- `REACT_APP_API_URL=https://your-backend.up.railway.app`
+- **Single Responsibility** – controllers map HTTP, services own use-cases, `ApiMapper` does
+  DTO translation, `RolePolicy`/`PasswordPolicy`/`InputValidator` each own one rule set.
+- **Open/Closed + Dependency Inversion** – services depend on interfaces (`UserService`,
+  `EnrollmentService`, `CalendarService`, `NotificationService`, `MailTransport`); concrete impls
+  are injected.
+- **Strategy** – `MailTransport` abstracts delivery (`SmtpMailTransport` today; add providers
+  without touching callers). Falls back to log-only when no SMTP host is configured.
+- **Observer / event-driven** – business services publish domain events
+  (`UserRegisteredEvent`, `UnenrollmentReviewedEvent`, `CalendarEventChangedEvent`, …). The
+  `NotificationDispatcher` listens **after commit** on a dedicated executor and composes the emails,
+  so notifications never block or roll back the originating request.
+- **Repository** – Spring Data JPA. **Factory** – `TokenFactory` for opaque tokens.
+- **Value objects / records** – DTOs and commands are immutable records.
 
-Config included:
-- [frontend/vercel.json](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/frontend/vercel.json) for SPA routing
+### New functionality (account security)
 
-Example env file:
-- [frontend/.env.vercel.example](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/frontend/.env.vercel.example)
+- **Login lockout** – temporary 429 after repeated failed logins (`login_attempts`).
+- **Password no-reuse** – previous password hashes are remembered (`password_history`).
+- **Email verification** – optional (`SECURITY_REQUIRE_EMAIL_VERIFICATION=true`); issues a
+  single-use verification link and blocks login until verified.
 
-## Railway
+## REST API (`/api/v1`)
 
-Create one Railway service for the backend from this repo root.
+| Method & path | Description | Access |
+|---|---|---|
+| `POST /auth/login` | Log in, returns JWT | public |
+| `POST /auth/register` | Self-registration | public |
+| `POST /auth/password-reset/request` | Request reset link | public |
+| `POST /auth/password-reset/confirm` | Set new password | public |
+| `POST /auth/verify-email` | Confirm email | public |
+| `GET /users/me` | Current user | any |
+| `GET/POST /users`, `PUT/DELETE /users/{id}` | Manage users | admin |
+| `POST /enrollment/status` | Check in / request check-out | student |
+| `GET /enrollment/history` | My recent activity | any |
+| `GET /enrollment/records/week` | Weekly board | staff |
+| `GET /enrollment/requests/pending` | Pending requests | staff |
+| `POST /enrollment/requests/{id}/approve` `/reject` | Review request | staff |
+| `GET /calendar?month=YYYY-MM` | Calendar + summary/attendance | any |
+| `POST/PUT/DELETE /calendar/events[/{id}]` | Manage events | admin |
+| `GET/DELETE /notifications[/{id}]` | Email audit log | admin |
+| `GET /health` | Health check | public |
 
-Config included:
-- [railway.json](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/railway.json)
+## Run locally (Docker Compose)
 
-Provision a MySQL database in Railway and then explicitly link its variables into the backend service.
+```bash
+docker compose up --build
+```
 
-Recommended backend variable mapping in Railway:
-- `MYSQLHOST=${{MySQL.MYSQLHOST}}`
-- `MYSQLPORT=${{MySQL.MYSQLPORT}}`
-- `MYSQLDATABASE=${{MySQL.MYSQLDATABASE}}`
-- `MYSQLUSER=${{MySQL.MYSQLUSER}}`
-- `MYSQLPASSWORD=${{MySQL.MYSQLPASSWORD}}`
+- Frontend: http://localhost:8080
+- Mailpit (captured emails): http://localhost:8025
+- Schema is created/migrated automatically by **Flyway** (`backend/src/main/resources/db/migration`).
 
-Alternative:
-- `MYSQL_URL=${{MySQL.MYSQL_URL}}`
+The first account registered with the `SYSTEM_ADMIN_EMAIL` becomes the admin.
 
-Important:
-- Railway does not automatically inject another service's database variables into your backend unless you add these references in the backend service `Variables` tab.
-- If these variables are missing, this app falls back to `localhost`, which causes the generic `Database connection error`.
+## Run the backend directly
 
-Recommended Railway backend variables:
-- `JWT_SECRET`
-- `SYSTEM_ADMIN_EMAIL`
-- `CORS_ALLOWED_ORIGINS`
-- `MAIL_FROM`
-- `MAIL_FROM_NAME`
-- `MAIL_SMTP_HOST`
-- `MAIL_SMTP_PORT`
-- `MAIL_SMTP_ENCRYPTION`
-- `MAIL_SMTP_USERNAME`
-- `MAIL_SMTP_PASSWORD`
-- `MAIL_SMTP_TIMEOUT`
-- `MAIL_EHLO_DOMAIN`
-- `FRONTEND_BASE_URL`
-- `PASSWORD_RESET_TOKEN_MINUTES`
-- `MAIL_FORCE_LOG_ONLY`
+```bash
+cd backend
+./mvnw spring-boot:run    # or: mvn spring-boot:run
+```
 
-Example env file:
-- [backend/.env.railway.example](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/backend/.env.railway.example)
+Configuration is environment-driven; see [`backend/.env.example`](backend/.env.example).
 
-## Important Notes
+## Deployment
 
-- Local Mailpit is only for development. Real emails require a real SMTP provider.
-- Existing data schema is auto-created by [backend/src/config/database.php](/C:/Users/zdrav/Downloads/UKTC-TESSIS-main/backend/src/config/database.php), so Railway MySQL does not need the Docker init script.
-- The API health endpoint is `GET /health`.
-- For production, set `CORS_ALLOWED_ORIGINS` to your real Vercel URL, for example `https://your-project.vercel.app`.
+- **Backend (Railway):** build from `backend/` (Dockerfile builds the Spring Boot jar). Provide
+  the MySQL variables (`MYSQLHOST/MYSQLPORT/MYSQLDATABASE/MYSQLUSER/MYSQLPASSWORD` or
+  `SPRING_DATASOURCE_URL`) plus `JWT_SECRET`, `SYSTEM_ADMIN_EMAIL`, `CORS_ALLOWED_ORIGINS`,
+  `FRONTEND_BASE_URL`, and the `MAIL_*` SMTP settings. The app listens on `$PORT` (default 8080).
+- **Frontend (Vercel):** root `frontend`, set `REACT_APP_API_URL` to the backend origin.
+- Health check path: `GET /health`.
+
+## Notes
+
+- Local Mailpit is for development only; real email requires a real SMTP provider.
+- For production set `CORS_ALLOWED_ORIGINS` to your real frontend URL.

@@ -1,4 +1,8 @@
-vendor
-src/routes/debug.log
+target/
+.git/
+.idea/
+*.iml
 .env
 .env.*
+README.md
+HELP.md

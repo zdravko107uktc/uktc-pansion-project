@@ -1,29 +1,24 @@
-FROM composer:2 AS vendor
-
+# --- Build stage: compile and package the Spring Boot fat jar ---
+FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
-COPY composer.json composer.lock ./
-RUN composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 
-FROM php:8.2-apache
+# Cache dependencies separately from source for faster rebuilds.
+COPY pom.xml ./
+RUN mvn -q -B dependency:go-offline
 
-RUN docker-php-ext-install pdo pdo_mysql
+COPY src ./src
+RUN mvn -q -B clean package -DskipTests
 
-RUN set -eux; \
-    a2dismod -f mpm_event mpm_worker || true; \
-    rm -f /etc/apache2/mods-enabled/mpm_event.load /etc/apache2/mods-enabled/mpm_event.conf; \
-    rm -f /etc/apache2/mods-enabled/mpm_worker.load /etc/apache2/mods-enabled/mpm_worker.conf; \
-    a2enmod mpm_prefork rewrite; \
-    apache2ctl -M | grep mpm_prefork
+# --- Runtime stage: slim JRE image ---
+FROM eclipse-temurin:21-jre
+WORKDIR /app
 
-COPY apache.conf /etc/apache2/sites-available/000-default.conf.template
-COPY docker-entrypoint.sh /usr/local/bin/railway-apache-entrypoint
-RUN chmod +x /usr/local/bin/railway-apache-entrypoint
+# Run as a non-root user.
+RUN useradd --system --create-home --uid 10001 appuser
+USER appuser
 
-COPY public /var/www/html/public
-COPY src /var/www/html/src
-COPY composer.json composer.lock /var/www/html/
-COPY --from=vendor /app/vendor /var/www/html/vendor
+COPY --from=build /app/target/pansion-backend.jar app.jar
 
-EXPOSE 80
-ENTRYPOINT ["railway-apache-entrypoint"]
-CMD ["apache2-foreground"]
+EXPOSE 8080
+ENV JAVA_OPTS=""
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar /app/app.jar"]
