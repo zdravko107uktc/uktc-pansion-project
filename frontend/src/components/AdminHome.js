@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FaCheckCircle,
   FaClock,
+  FaDownload,
   FaEdit,
   FaEnvelope,
   FaMapMarkerAlt,
@@ -16,6 +17,8 @@ import {
 } from "react-icons/fa";
 import {
   approveUnenrollment,
+  bulkApproveUnenrollment,
+  bulkRejectUnenrollment,
   clearNotifications,
   createCalendarEvent,
   createManagedUser,
@@ -24,6 +27,7 @@ import {
   deleteUser,
   getCalendarData,
   getCurrentUser,
+  getOccupancySummary,
   getPendingRequests,
   getRecentNotifications,
   getUsers,
@@ -68,6 +72,13 @@ const getApprovalBadgeClass = (status, approvalStatus) => {
   if (status === "enrolled") return "bg-green-100 text-green-700";
   if (approvalStatus === "rejected") return "bg-red-100 text-red-700";
   return "bg-slate-100 text-slate-600";
+};
+
+const recordCategory = (record) => {
+  if (record.approval_status === "pending") return "pending";
+  if (record.status === "enrolled") return "enrolled";
+  if (record.approval_status === "rejected") return "rejected";
+  return "away";
 };
 
 const getRecordLabel = (status, approvalStatus) => {
@@ -130,12 +141,19 @@ const AdminHome = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [allRecords, setAllRecords] = useState([]);
+  const [occupancy, setOccupancy] = useState(null);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [managedUsers, setManagedUsers] = useState([]);
   const [calendarMonth, setCalendarMonth] = useState(currentMonthValue());
   const [calendarData, setCalendarData] = useState({ dailySummary: [], events: [] });
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dormFilter, setDormFilter] = useState("all");
+  const [selectedRequestIds, setSelectedRequestIds] = useState([]);
+  const [bulkSignature, setBulkSignature] = useState("");
+  const [bulkPadKey, setBulkPadKey] = useState(0);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [lastUpdated, setLastUpdated] = useState(null);
   const [approvalState, setApprovalState] = useState({ text: "", type: "" });
@@ -174,6 +192,7 @@ const AdminHome = () => {
     const tasks = [
       getWeekRecords(token).then((data) => setAllRecords(Array.isArray(data) ? data : [])),
       getPendingRequests(token).then((data) => setPendingRequests(Array.isArray(data) ? data : [])),
+      getOccupancySummary(token).then((data) => setOccupancy(data || null)),
       fetchCalendar(calendarMonth),
     ];
 
@@ -246,6 +265,48 @@ const AdminHome = () => {
       });
     } finally {
       setReviewingId(null);
+    }
+  };
+
+  const toggleRequestSelection = (id) =>
+    setSelectedRequestIds((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]
+    );
+
+  const allPendingSelected =
+    pendingRequests.length > 0 && selectedRequestIds.length === pendingRequests.length;
+
+  const toggleSelectAll = () =>
+    setSelectedRequestIds(allPendingSelected ? [] : pendingRequests.map((request) => request.id));
+
+  const handleBulkReview = async (decision) => {
+    if (selectedRequestIds.length === 0) return;
+    if (!bulkSignature) {
+      setApprovalState({ text: "Подписът на възпитателя или администратора е задължителен.", type: "error" });
+      return;
+    }
+
+    setBulkProcessing(true);
+    setApprovalState({ text: "", type: "" });
+
+    try {
+      const response =
+        decision === "approve"
+          ? await bulkApproveUnenrollment(token, selectedRequestIds, bulkSignature)
+          : await bulkRejectUnenrollment(token, selectedRequestIds, bulkSignature);
+
+      setApprovalState({ text: response.message || "Заявките са обработени.", type: "success" });
+      setSelectedRequestIds([]);
+      setBulkSignature("");
+      setBulkPadKey((key) => key + 1);
+      await refreshEverything();
+    } catch (error) {
+      setApprovalState({
+        text: error?.data?.message || "Грешка при груповата обработка на заявките.",
+        type: "error",
+      });
+    } finally {
+      setBulkProcessing(false);
     }
   };
 
@@ -406,17 +467,26 @@ const AdminHome = () => {
     }
   };
 
+  useEffect(() => {
+    setSelectedRequestIds((prev) =>
+      prev.filter((id) => pendingRequests.some((request) => request.id === id))
+    );
+  }, [pendingRequests]);
+
   const filteredRecords = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) return allRecords;
 
-    return allRecords.filter(
-      (record) =>
+    return allRecords.filter((record) => {
+      if (statusFilter !== "all" && recordCategory(record) !== statusFilter) return false;
+      if (dormFilter !== "all" && String(record.student_dormitory || "") !== dormFilter) return false;
+      if (!needle) return true;
+      return (
         record.full_name?.toLowerCase().includes(needle) ||
         record.email?.toLowerCase().includes(needle) ||
         String(record.student_dormitory || "").toLowerCase().includes(needle)
-    );
-  }, [allRecords, search]);
+      );
+    });
+  }, [allRecords, search, statusFilter, dormFilter]);
 
   const filteredUsers = useMemo(() => {
     const needle = userSearch.trim().toLowerCase();
@@ -432,6 +502,33 @@ const AdminHome = () => {
 
   const totalEnrolled = allRecords.filter((record) => record.status === "enrolled").length;
   const totalUnenrolled = allRecords.filter((record) => record.status === "unenrolled").length;
+
+  const handleExportCsv = () => {
+    const header = ["Име", "Имейл", "Общежитие", "Статус", "Дата и час", "Локация"];
+    const csvCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const rows = filteredRecords.map((record) =>
+      [
+        record.full_name,
+        record.email,
+        record.student_dormitory ? `Общежитие ${record.student_dormitory}` : "",
+        getRecordLabel(record.status, record.approval_status),
+        formatDateTimeBg(record.timestamp),
+        record.location || "",
+      ]
+        .map(csvCell)
+        .join(",")
+    );
+    const csv = "﻿" + [header.map(csvCell).join(","), ...rows].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `pansion-zapisi-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   if (loading) {
     return (
@@ -472,6 +569,55 @@ const AdminHome = () => {
           <StatCard value={isAdmin ? managedUsers.length : filteredRecords.length} label={isAdmin ? "Потребители" : "Видими записи"} />
         </div>
 
+        {occupancy && (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">Текуща заетост</h2>
+              <span className="text-sm text-slate-500">
+                Общо ученици: <span className="font-semibold text-slate-700">{occupancy.total_students}</span>
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard value={occupancy.enrolled} label="В общежитието сега" tone="green" />
+              <StatCard value={occupancy.away} label="Извън общежитието" tone="red" />
+              <StatCard value={occupancy.pending} label="Чакащи одобрение" tone="amber" />
+              <StatCard value={occupancy.unknown} label="Без регистриран статус" />
+            </div>
+
+            {Array.isArray(occupancy.dormitories) && occupancy.dormitories.length > 0 && (
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="py-2 pr-4 font-medium">Общежитие</th>
+                      <th className="py-2 pr-4 font-medium">В общежитието</th>
+                      <th className="py-2 pr-4 font-medium">Извън</th>
+                      <th className="py-2 pr-4 font-medium">Чакащи</th>
+                      <th className="py-2 pr-4 font-medium">Без статус</th>
+                      <th className="py-2 pr-4 font-medium">Общо</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {occupancy.dormitories.map((dorm) => (
+                      <tr key={dorm.dormitory ?? "none"} className="border-t border-slate-100 text-slate-700">
+                        <td className="py-2 pr-4 font-medium">
+                          {dorm.dormitory ? `Общежитие ${dorm.dormitory}` : "Без общежитие"}
+                        </td>
+                        <td className="py-2 pr-4 text-green-700">{dorm.enrolled}</td>
+                        <td className="py-2 pr-4 text-red-700">{dorm.away}</td>
+                        <td className="py-2 pr-4 text-amber-700">{dorm.pending}</td>
+                        <td className="py-2 pr-4 text-slate-500">{dorm.unknown}</td>
+                        <td className="py-2 pr-4 font-semibold">{dorm.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         <CalendarPanel
           title={isAdmin ? "Календар и дневна справка" : "Календар"}
           month={calendarMonth}
@@ -503,6 +649,50 @@ const AdminHome = () => {
             </div>
           )}
 
+          {pendingRequests.length > 0 && (
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={allPendingSelected}
+                  onChange={toggleSelectAll}
+                  className="h-4 w-4 rounded border-slate-300 text-[#791c1c] focus:ring-[#791c1c]/30"
+                />
+                Избери всички ({selectedRequestIds.length}/{pendingRequests.length})
+              </label>
+
+              {selectedRequestIds.length > 0 && (
+                <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    <FaPenNib size={12} className="text-slate-500" />
+                    Подпис за груповата обработка на {selectedRequestIds.length} заявки
+                  </div>
+                  <SignaturePad key={bulkPadKey} onChange={setBulkSignature} />
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => handleBulkReview("approve")}
+                      disabled={!bulkSignature || bulkProcessing}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+                    >
+                      <FaCheckCircle size={12} />
+                      Одобри избраните
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBulkReview("reject")}
+                      disabled={!bulkSignature || bulkProcessing}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
+                    >
+                      <FaTimesCircle size={12} />
+                      Откажи избраните
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {pendingRequests.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
               Няма чакащи заявки за отписване.
@@ -514,6 +704,13 @@ const AdminHome = () => {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedRequestIds.includes(request.id)}
+                          onChange={() => toggleRequestSelection(request.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-[#791c1c] focus:ring-[#791c1c]/30"
+                          aria-label={`Избери заявката на ${request.full_name}`}
+                        />
                         <span className="text-base font-semibold text-slate-900">{request.full_name}</span>
                         <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
                           Общежитие {request.student_dormitory || "-"}
@@ -578,14 +775,45 @@ const AdminHome = () => {
               <FaUsers className="text-slate-600" />
               <h2 className="text-lg font-semibold text-slate-900">Последни статуси за седмицата</h2>
             </div>
-            <div className="relative w-full sm:w-72">
-              <FaSearch size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Търси по име или имейл"
-                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm focus:border-[#791c1c] focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20"
-              />
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:flex-wrap">
+              <div className="relative w-full sm:w-60">
+                <FaSearch size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Търси по име или имейл"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm focus:border-[#791c1c] focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-600 focus:border-[#791c1c] focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 sm:w-auto"
+              >
+                <option value="all">Всички статуси</option>
+                <option value="enrolled">Записани</option>
+                <option value="away">Отписани</option>
+                <option value="pending">Чакащи</option>
+                <option value="rejected">Отказани</option>
+              </select>
+              <select
+                value={dormFilter}
+                onChange={(event) => setDormFilter(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-600 focus:border-[#791c1c] focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20 sm:w-auto"
+              >
+                <option value="all">Всички общежития</option>
+                <option value="1">Общежитие 1</option>
+                <option value="2">Общежитие 2</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={filteredRecords.length === 0}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+              >
+                <FaDownload size={12} />
+                Изтегли CSV
+              </button>
             </div>
           </div>
 

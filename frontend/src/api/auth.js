@@ -120,6 +120,16 @@ export const getWeekRecords = async (token) =>
     headers: authHeaders(token, { Accept: "application/json" }),
   });
 
+export const getNotificationFeed = async (token) =>
+  requestJson(`${API_BASE}/notifications/feed`, {
+    headers: authHeaders(token, { Accept: "application/json" }),
+  });
+
+export const getOccupancySummary = async (token) =>
+  requestJson(`${API_BASE}/enrollment/reports/occupancy`, {
+    headers: authHeaders(token, { Accept: "application/json" }),
+  });
+
 export const approveUnenrollment = async (token, statusId, reviewSignature) =>
   requestJson(
     `${API_BASE}/enrollment/requests/${statusId}/approve`,
@@ -130,6 +140,18 @@ export const rejectUnenrollment = async (token, statusId, reviewSignature) =>
   requestJson(
     `${API_BASE}/enrollment/requests/${statusId}/reject`,
     jsonBody(token, "POST", { reviewSignature })
+  );
+
+export const bulkApproveUnenrollment = async (token, statusIds, reviewSignature) =>
+  requestJson(
+    `${API_BASE}/enrollment/requests/bulk/approve`,
+    jsonBody(token, "POST", { statusIds, reviewSignature })
+  );
+
+export const bulkRejectUnenrollment = async (token, statusIds, reviewSignature) =>
+  requestJson(
+    `${API_BASE}/enrollment/requests/bulk/reject`,
+    jsonBody(token, "POST", { statusIds, reviewSignature })
   );
 
 export const getCalendarData = async (token, month) =>

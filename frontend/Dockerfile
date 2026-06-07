@@ -7,7 +7,10 @@ RUN npm install --legacy-peer-deps
 
 COPY . .
 
-ENV REACT_APP_API_URL=/api
+# Same-origin: the app calls /api/v1/... and nginx (see nginx.conf) proxies /api/ to the backend.
+# Keep this empty — the API client appends /api/v1 itself, so a value like "/api" would produce
+# a broken /api/api/v1 path that 404s.
+ENV REACT_APP_API_URL=""
 
 RUN npm run build
 

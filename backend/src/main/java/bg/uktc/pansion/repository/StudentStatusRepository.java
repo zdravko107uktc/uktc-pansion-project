@@ -4,6 +4,7 @@ import bg.uktc.pansion.domain.entity.StudentStatus;
 import bg.uktc.pansion.domain.enums.ApprovalStatus;
 import bg.uktc.pansion.domain.enums.Dormitory;
 import bg.uktc.pansion.repository.projection.DailySummaryRow;
+import bg.uktc.pansion.repository.projection.OccupancyRow;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -85,4 +86,31 @@ public interface StudentStatusRepository extends JpaRepository<StudentStatus, Lo
             ORDER BY DATE(ss.timestamp) ASC
             """, nativeQuery = true)
     List<DailySummaryRow> findMonthlySummary(@Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    /**
+     * Live occupancy grouped by dormitory: counts each student by their most recent status row.
+     * Students with no status history contribute only to the total (treated as "unknown" by callers).
+     * Pass {@code dormitory = null} for all dormitories, or a value ("1"/"2") to restrict the result.
+     */
+    @Query(value = """
+            SELECT u.dormitory AS dormitory,
+                   SUM(CASE WHEN latest.status = 'enrolled' THEN 1 ELSE 0 END) AS enrolledCount,
+                   SUM(CASE WHEN latest.status = 'unenrolled' AND latest.approval_status = 'approved' THEN 1 ELSE 0 END) AS awayCount,
+                   SUM(CASE WHEN latest.approval_status = 'pending' THEN 1 ELSE 0 END) AS pendingCount,
+                   COUNT(u.id) AS totalCount
+            FROM users u
+            LEFT JOIN (
+                SELECT ss.* FROM student_status ss
+                INNER JOIN (
+                    SELECT student_id, MAX(timestamp) AS latest_time
+                    FROM student_status
+                    GROUP BY student_id
+                ) m ON ss.student_id = m.student_id AND ss.timestamp = m.latest_time
+            ) latest ON latest.student_id = u.id
+            WHERE u.role = 'student'
+              AND (:dormitory IS NULL OR u.dormitory = :dormitory)
+            GROUP BY u.dormitory
+            ORDER BY u.dormitory
+            """, nativeQuery = true)
+    List<OccupancyRow> findOccupancyByDormitory(@Param("dormitory") String dormitory);
 }

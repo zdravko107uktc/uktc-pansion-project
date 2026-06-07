@@ -2,11 +2,15 @@ package bg.uktc.pansion.web.controller;
 
 import bg.uktc.pansion.security.AppUserPrincipal;
 import bg.uktc.pansion.service.EnrollmentService;
+import bg.uktc.pansion.service.BulkReviewOutcome;
 import bg.uktc.pansion.service.command.StatusChangeCommand;
+import bg.uktc.pansion.web.dto.request.BulkReviewRequest;
 import bg.uktc.pansion.web.dto.request.ReviewRequest;
 import bg.uktc.pansion.web.dto.request.StatusChangeRequest;
 import bg.uktc.pansion.web.dto.response.HistoryEntryResponse;
+import bg.uktc.pansion.web.dto.response.BulkReviewResponse;
 import bg.uktc.pansion.web.dto.response.MessageResponse;
+import bg.uktc.pansion.web.dto.response.OccupancySummaryResponse;
 import bg.uktc.pansion.web.dto.response.PendingRequestResponse;
 import bg.uktc.pansion.web.dto.response.WeekRecordResponse;
 import bg.uktc.pansion.web.mapper.ApiMapper;
@@ -63,6 +67,12 @@ public class EnrollmentController {
                 .map(ApiMapper::toPendingRequest).toList();
     }
 
+    @GetMapping("/reports/occupancy")
+    @PreAuthorize("hasAnyRole('ADMIN','COUNSELOR')")
+    public OccupancySummaryResponse occupancy(@AuthenticationPrincipal AppUserPrincipal principal) {
+        return ApiMapper.toOccupancySummary(enrollmentService.getOccupancy(principal.getId()));
+    }
+
     @PostMapping("/requests/{statusId}/approve")
     @PreAuthorize("hasAnyRole('ADMIN','COUNSELOR')")
     public MessageResponse approve(@AuthenticationPrincipal AppUserPrincipal principal,
@@ -79,5 +89,34 @@ public class EnrollmentController {
                                   @Valid @RequestBody ReviewRequest request) {
         return new MessageResponse(
                 enrollmentService.reviewRequest(principal.getId(), statusId, false, request.reviewSignature()));
+    }
+
+    @PostMapping("/requests/bulk/approve")
+    @PreAuthorize("hasAnyRole('ADMIN','COUNSELOR')")
+    public BulkReviewResponse bulkApprove(@AuthenticationPrincipal AppUserPrincipal principal,
+                                          @Valid @RequestBody BulkReviewRequest request) {
+        return toBulkResponse(
+                enrollmentService.bulkReview(principal.getId(), request.statusIds(), true, request.reviewSignature()),
+                true);
+    }
+
+    @PostMapping("/requests/bulk/reject")
+    @PreAuthorize("hasAnyRole('ADMIN','COUNSELOR')")
+    public BulkReviewResponse bulkReject(@AuthenticationPrincipal AppUserPrincipal principal,
+                                         @Valid @RequestBody BulkReviewRequest request) {
+        return toBulkResponse(
+                enrollmentService.bulkReview(principal.getId(), request.statusIds(), false, request.reviewSignature()),
+                false);
+    }
+
+    private BulkReviewResponse toBulkResponse(BulkReviewOutcome outcome, boolean approve) {
+        String action = approve ? "одобрени" : "отказани";
+        StringBuilder message = new StringBuilder()
+                .append(outcome.processed()).append(" заявки са ").append(action).append('.');
+        if (outcome.skipped() > 0) {
+            message.append(' ').append(outcome.skipped())
+                    .append(" бяха пропуснати (вече обработени или извън вашия достъп).");
+        }
+        return new BulkReviewResponse(outcome.processed(), outcome.skipped(), message.toString());
     }
 }

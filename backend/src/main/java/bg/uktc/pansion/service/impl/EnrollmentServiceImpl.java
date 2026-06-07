@@ -14,6 +14,8 @@ import bg.uktc.pansion.notification.event.UnenrollmentRequestedEvent;
 import bg.uktc.pansion.notification.event.UnenrollmentReviewedEvent;
 import bg.uktc.pansion.repository.StudentStatusRepository;
 import bg.uktc.pansion.repository.UserRepository;
+import bg.uktc.pansion.repository.projection.OccupancyRow;
+import bg.uktc.pansion.service.BulkReviewOutcome;
 import bg.uktc.pansion.service.EnrollmentService;
 import bg.uktc.pansion.service.UserService;
 import bg.uktc.pansion.service.command.StatusChangeCommand;
@@ -130,6 +132,50 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     }
 
     @Override
+    @Transactional
+    public BulkReviewOutcome bulkReview(Long staffUserId, List<Long> statusIds, boolean approve, String reviewSignature) {
+        User staff = requireStaff(staffUserId);
+        if (statusIds == null || statusIds.isEmpty()) {
+            throw new BadRequestException("Изберете поне една заявка.");
+        }
+        if (reviewSignature == null || !reviewSignature.startsWith("data:image/")) {
+            throw new BadRequestException("Подписът на възпитателя или администратора е задължителен.");
+        }
+
+        int processed = 0;
+        int skipped = 0;
+        for (Long statusId : statusIds.stream().filter(java.util.Objects::nonNull).distinct().toList()) {
+            StudentStatus request = statusRepository.findByIdWithStudent(statusId)
+                    .filter(StudentStatus::isPending)
+                    .orElse(null);
+            if (request == null) {
+                skipped++;
+                continue;
+            }
+
+            User student = request.getStudent();
+            if (staff.getRole() == Role.COUNSELOR && staff.getDormitory() != student.getDormitory()) {
+                skipped++;
+                continue;
+            }
+
+            if (approve) {
+                request.approve(staff, reviewSignature, dateTime.now());
+            } else {
+                request.reject(staff, reviewSignature, dateTime.now());
+            }
+            statusRepository.save(request);
+
+            events.publishEvent(new UnenrollmentReviewedEvent(
+                    student.getEmail(), student.getFullName(), student.getDormitory(), request.getLocation(),
+                    staff.getFullName(), staff.getRole(), approve,
+                    userRepository.findStaffEmailsForDormitory(student.getDormitory())));
+            processed++;
+        }
+        return new BulkReviewOutcome(processed, skipped);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<StudentStatus> getHistory(Long studentId, int limit) {
         return statusRepository.findHistory(studentId, Limit.of(limit));
@@ -163,6 +209,15 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         Instant from = start.atStartOfDay(zone).toInstant();
         Instant to = end.atTime(23, 59, 59).atZone(zone).toInstant();
         return statusRepository.findByStudentIdAndTimestampBetweenOrderByTimestampDesc(studentId, from, to);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OccupancyRow> getOccupancy(Long staffUserId) {
+        User staff = requireStaff(staffUserId);
+        String dormitory = staff.getRole() == Role.COUNSELOR && staff.getDormitory() != null
+                ? staff.getDormitory().getValue() : null;
+        return statusRepository.findOccupancyByDormitory(dormitory);
     }
 
     private EnrollmentStatus currentStatus(Long studentId) {

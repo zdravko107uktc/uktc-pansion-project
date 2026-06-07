@@ -7,13 +7,17 @@ import bg.uktc.pansion.domain.entity.User;
 import bg.uktc.pansion.domain.enums.Dormitory;
 import bg.uktc.pansion.domain.enums.Role;
 import bg.uktc.pansion.repository.projection.DailySummaryRow;
+import bg.uktc.pansion.repository.projection.OccupancyRow;
 import bg.uktc.pansion.service.CalendarSnapshot;
+import bg.uktc.pansion.service.NotificationFeedItem;
 import bg.uktc.pansion.web.dto.response.AttendanceResponse;
 import bg.uktc.pansion.web.dto.response.CalendarDataResponse;
 import bg.uktc.pansion.web.dto.response.CalendarEventResponse;
 import bg.uktc.pansion.web.dto.response.DailySummaryResponse;
 import bg.uktc.pansion.web.dto.response.HistoryEntryResponse;
+import bg.uktc.pansion.web.dto.response.NotificationFeedItemResponse;
 import bg.uktc.pansion.web.dto.response.NotificationResponse;
+import bg.uktc.pansion.web.dto.response.OccupancySummaryResponse;
 import bg.uktc.pansion.web.dto.response.PendingRequestResponse;
 import bg.uktc.pansion.web.dto.response.UserResponse;
 import bg.uktc.pansion.web.dto.response.WeekRecordResponse;
@@ -129,6 +133,34 @@ public final class ApiMapper {
                 : snapshot.attendance().stream().map(ApiMapper::toAttendance).toList();
         return new CalendarDataResponse(
                 snapshot.month(), events, snapshot.canManageEvents(), summary, attendance);
+    }
+
+    public static NotificationFeedItemResponse toFeedItem(NotificationFeedItem item) {
+        return new NotificationFeedItemResponse(
+                item.id(), item.type(), item.severity(), item.title(), item.message(), item.createdAt());
+    }
+
+    public static OccupancySummaryResponse toOccupancySummary(List<OccupancyRow> rows) {
+        List<OccupancySummaryResponse.DormitoryOccupancy> dormitories = rows.stream()
+                .map(ApiMapper::toDormitoryOccupancy)
+                .toList();
+        long total = dormitories.stream().mapToLong(OccupancySummaryResponse.DormitoryOccupancy::total).sum();
+        long enrolled = dormitories.stream().mapToLong(OccupancySummaryResponse.DormitoryOccupancy::enrolled).sum();
+        long away = dormitories.stream().mapToLong(OccupancySummaryResponse.DormitoryOccupancy::away).sum();
+        long pending = dormitories.stream().mapToLong(OccupancySummaryResponse.DormitoryOccupancy::pending).sum();
+        long unknown = dormitories.stream().mapToLong(OccupancySummaryResponse.DormitoryOccupancy::unknown).sum();
+        return new OccupancySummaryResponse(total, enrolled, away, pending, unknown, dormitories);
+    }
+
+    private static OccupancySummaryResponse.DormitoryOccupancy toDormitoryOccupancy(OccupancyRow row) {
+        long unknown = row.getTotalCount() - row.getEnrolledCount() - row.getAwayCount() - row.getPendingCount();
+        return new OccupancySummaryResponse.DormitoryOccupancy(
+                row.getDormitory(),
+                row.getTotalCount(),
+                row.getEnrolledCount(),
+                row.getAwayCount(),
+                row.getPendingCount(),
+                Math.max(0, unknown));
     }
 
     private static String value(Role role) {
