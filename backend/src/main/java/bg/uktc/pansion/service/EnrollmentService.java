@@ -33,4 +33,10 @@ public interface EnrollmentService {
      * admins see every dormitory.
      */
     List<OccupancyRow> getOccupancy(Long staffUserId);
+
+    /**
+     * Student roster with each student's current status. Counselors see only their own dormitory;
+     * admins see every student.
+     */
+    List<RosterEntry> getRoster(Long staffUserId);
 }

@@ -12,6 +12,7 @@ import bg.uktc.pansion.web.dto.response.BulkReviewResponse;
 import bg.uktc.pansion.web.dto.response.MessageResponse;
 import bg.uktc.pansion.web.dto.response.OccupancySummaryResponse;
 import bg.uktc.pansion.web.dto.response.PendingRequestResponse;
+import bg.uktc.pansion.web.dto.response.RosterEntryResponse;
 import bg.uktc.pansion.web.dto.response.WeekRecordResponse;
 import bg.uktc.pansion.web.mapper.ApiMapper;
 import bg.uktc.pansion.web.mapper.RequestParser;
@@ -71,6 +72,13 @@ public class EnrollmentController {
     @PreAuthorize("hasAnyRole('ADMIN','COUNSELOR')")
     public OccupancySummaryResponse occupancy(@AuthenticationPrincipal AppUserPrincipal principal) {
         return ApiMapper.toOccupancySummary(enrollmentService.getOccupancy(principal.getId()));
+    }
+
+    @GetMapping("/roster")
+    @PreAuthorize("hasAnyRole('ADMIN','COUNSELOR')")
+    public List<RosterEntryResponse> roster(@AuthenticationPrincipal AppUserPrincipal principal) {
+        return enrollmentService.getRoster(principal.getId()).stream()
+                .map(ApiMapper::toRosterEntry).toList();
     }
 
     @PostMapping("/requests/{statusId}/approve")

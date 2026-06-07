@@ -29,6 +29,7 @@ import {
   getCurrentUser,
   getOccupancySummary,
   getPendingRequests,
+  getRoster,
   getRecentNotifications,
   getUsers,
   getWeekRecords,
@@ -142,6 +143,8 @@ const AdminHome = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [allRecords, setAllRecords] = useState([]);
   const [occupancy, setOccupancy] = useState(null);
+  const [roster, setRoster] = useState([]);
+  const [rosterSearch, setRosterSearch] = useState("");
   const [pendingRequests, setPendingRequests] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [managedUsers, setManagedUsers] = useState([]);
@@ -193,6 +196,7 @@ const AdminHome = () => {
       getWeekRecords(token).then((data) => setAllRecords(Array.isArray(data) ? data : [])),
       getPendingRequests(token).then((data) => setPendingRequests(Array.isArray(data) ? data : [])),
       getOccupancySummary(token).then((data) => setOccupancy(data || null)),
+      getRoster(token).then((data) => setRoster(Array.isArray(data) ? data : [])),
       fetchCalendar(calendarMonth),
     ];
 
@@ -500,6 +504,17 @@ const AdminHome = () => {
     );
   }, [managedUsers, userSearch]);
 
+  const filteredRoster = useMemo(() => {
+    const needle = rosterSearch.trim().toLowerCase();
+    if (!needle) return roster;
+
+    return roster.filter(
+      (student) =>
+        student.full_name?.toLowerCase().includes(needle) ||
+        student.email?.toLowerCase().includes(needle)
+    );
+  }, [roster, rosterSearch]);
+
   const totalEnrolled = allRecords.filter((record) => record.status === "enrolled").length;
   const totalUnenrolled = allRecords.filter((record) => record.status === "unenrolled").length;
 
@@ -765,6 +780,77 @@ const AdminHome = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <FaUsers className="text-slate-600" />
+              <h2 className="text-lg font-semibold text-slate-900">
+                {isAdmin ? "Списък на учениците" : "Ученици в моето общежитие"}
+              </h2>
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+                {filteredRoster.length}
+              </span>
+            </div>
+            <div className="relative w-full sm:w-72">
+              <FaSearch size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={rosterSearch}
+                onChange={(event) => setRosterSearch(event.target.value)}
+                placeholder="Търси ученик по име или имейл"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm focus:border-[#791c1c] focus:outline-none focus:ring-2 focus:ring-[#791c1c]/20"
+              />
+            </div>
+          </div>
+
+          {filteredRoster.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+              Няма ученици за показване.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="py-2 pr-4 font-medium">Име</th>
+                    <th className="py-2 pr-4 font-medium">Имейл</th>
+                    {isAdmin && <th className="py-2 pr-4 font-medium">Общежитие</th>}
+                    <th className="py-2 pr-4 font-medium">Текущ статус</th>
+                    <th className="py-2 pr-4 font-medium">Последна промяна</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRoster.map((student) => (
+                    <tr key={student.id} className="border-t border-slate-100 text-slate-700">
+                      <td className="py-2 pr-4 font-medium text-slate-900">{student.full_name}</td>
+                      <td className="py-2 pr-4 text-slate-500">{student.email}</td>
+                      {isAdmin && (
+                        <td className="py-2 pr-4">{student.dormitory ? `Общежитие ${student.dormitory}` : "-"}</td>
+                      )}
+                      <td className="py-2 pr-4">
+                        {student.current_status ? (
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${getApprovalBadgeClass(
+                              student.current_status,
+                              student.approval_status
+                            )}`}
+                          >
+                            {getRecordLabel(student.current_status, student.approval_status)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">Няма данни</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4 text-slate-500">
+                        {student.since ? formatDateTimeBg(student.since, { month: "short" }) : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </section>

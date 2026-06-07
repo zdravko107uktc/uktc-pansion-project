@@ -18,6 +18,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     List<User> findAllByOrderByCreatedAtDesc();
 
+    /** Students of a given dormitory (or all students when {@code dormitory} is null), by name. */
+    @Query("""
+            select u from User u
+            where u.role = bg.uktc.pansion.domain.enums.Role.STUDENT
+              and (:dormitory is null or u.dormitory = :dormitory)
+            order by u.fullName asc
+            """)
+    List<User> findStudentsByDormitory(@Param("dormitory") bg.uktc.pansion.domain.enums.Dormitory dormitory);
+
     /**
      * Emails that should be notified about events in a given dormitory: all admins plus the
      * counselors of that dormitory (or all counselors when {@code dormitory} is null).

@@ -10,6 +10,7 @@ import bg.uktc.pansion.repository.projection.DailySummaryRow;
 import bg.uktc.pansion.repository.projection.OccupancyRow;
 import bg.uktc.pansion.service.CalendarSnapshot;
 import bg.uktc.pansion.service.NotificationFeedItem;
+import bg.uktc.pansion.service.RosterEntry;
 import bg.uktc.pansion.web.dto.response.AttendanceResponse;
 import bg.uktc.pansion.web.dto.response.CalendarDataResponse;
 import bg.uktc.pansion.web.dto.response.CalendarEventResponse;
@@ -19,6 +20,7 @@ import bg.uktc.pansion.web.dto.response.NotificationFeedItemResponse;
 import bg.uktc.pansion.web.dto.response.NotificationResponse;
 import bg.uktc.pansion.web.dto.response.OccupancySummaryResponse;
 import bg.uktc.pansion.web.dto.response.PendingRequestResponse;
+import bg.uktc.pansion.web.dto.response.RosterEntryResponse;
 import bg.uktc.pansion.web.dto.response.UserResponse;
 import bg.uktc.pansion.web.dto.response.WeekRecordResponse;
 
@@ -133,6 +135,19 @@ public final class ApiMapper {
                 : snapshot.attendance().stream().map(ApiMapper::toAttendance).toList();
         return new CalendarDataResponse(
                 snapshot.month(), events, snapshot.canManageEvents(), summary, attendance);
+    }
+
+    public static RosterEntryResponse toRosterEntry(RosterEntry entry) {
+        User student = entry.student();
+        StudentStatus status = entry.status();
+        return new RosterEntryResponse(
+                student.getId(),
+                student.getFullName(),
+                student.getEmail(),
+                value(student.getDormitory()),
+                status == null ? null : value(status.getStatus()),
+                status == null ? null : value(status.getApprovalStatus()),
+                status == null ? null : status.getTimestamp());
     }
 
     public static NotificationFeedItemResponse toFeedItem(NotificationFeedItem item) {

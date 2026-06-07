@@ -75,6 +75,19 @@ public interface StudentStatusRepository extends JpaRepository<StudentStatus, Lo
             @Param("end") Instant end,
             @Param("dormitory") String dormitory);
 
+    /** Most recent status per student overall (no time window), optionally restricted to a dormitory. */
+    @Query(value = """
+            SELECT ss.* FROM student_status ss
+            INNER JOIN (
+                SELECT student_id, MAX(timestamp) AS latest_time
+                FROM student_status
+                GROUP BY student_id
+            ) latest ON ss.student_id = latest.student_id AND ss.timestamp = latest.latest_time
+            INNER JOIN users u ON u.id = ss.student_id
+            WHERE (:dormitory IS NULL OR u.dormitory = :dormitory)
+            """, nativeQuery = true)
+    List<StudentStatus> findLatestPerStudent(@Param("dormitory") String dormitory);
+
     @Query(value = """
             SELECT DATE(ss.timestamp) AS day,
                    SUM(CASE WHEN ss.status = 'enrolled' THEN 1 ELSE 0 END) AS enrolledCount,

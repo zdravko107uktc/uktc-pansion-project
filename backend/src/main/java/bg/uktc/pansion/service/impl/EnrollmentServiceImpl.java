@@ -17,6 +17,7 @@ import bg.uktc.pansion.repository.UserRepository;
 import bg.uktc.pansion.repository.projection.OccupancyRow;
 import bg.uktc.pansion.service.BulkReviewOutcome;
 import bg.uktc.pansion.service.EnrollmentService;
+import bg.uktc.pansion.service.RosterEntry;
 import bg.uktc.pansion.service.UserService;
 import bg.uktc.pansion.service.command.StatusChangeCommand;
 import bg.uktc.pansion.service.support.DateTimeService;
@@ -30,6 +31,9 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 public class EnrollmentServiceImpl implements EnrollmentService {
@@ -218,6 +222,21 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         String dormitory = staff.getRole() == Role.COUNSELOR && staff.getDormitory() != null
                 ? staff.getDormitory().getValue() : null;
         return statusRepository.findOccupancyByDormitory(dormitory);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RosterEntry> getRoster(Long staffUserId) {
+        User staff = requireStaff(staffUserId);
+        Dormitory dormitory = staff.getRole() == Role.COUNSELOR ? staff.getDormitory() : null;
+
+        Map<Long, StudentStatus> latestByStudent = statusRepository
+                .findLatestPerStudent(dormitory == null ? null : dormitory.getValue()).stream()
+                .collect(Collectors.toMap(status -> status.getStudent().getId(), Function.identity(), (a, b) -> a));
+
+        return userRepository.findStudentsByDormitory(dormitory).stream()
+                .map(student -> new RosterEntry(student, latestByStudent.get(student.getId())))
+                .toList();
     }
 
     private EnrollmentStatus currentStatus(Long studentId) {

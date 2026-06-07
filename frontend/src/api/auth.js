@@ -130,6 +130,11 @@ export const getOccupancySummary = async (token) =>
     headers: authHeaders(token, { Accept: "application/json" }),
   });
 
+export const getRoster = async (token) =>
+  requestJson(`${API_BASE}/enrollment/roster`, {
+    headers: authHeaders(token, { Accept: "application/json" }),
+  });
+
 export const approveUnenrollment = async (token, statusId, reviewSignature) =>
   requestJson(
     `${API_BASE}/enrollment/requests/${statusId}/approve`,
